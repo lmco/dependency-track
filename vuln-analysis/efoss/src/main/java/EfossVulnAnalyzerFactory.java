@@ -59,7 +59,7 @@ public class EfossVulnAnalyzerFactory implements VulnAnalyzerFactory, RuntimeCon
 
         return new EfossVulnAnalyzer(
             httpClient,
-            config.getApiUrl().toString(),
+            config.getApiUsername().toString(),
             config.getApiToken()
         );
     }
@@ -73,8 +73,8 @@ public class EfossVulnAnalyzerFactory implements VulnAnalyzerFactory, RuntimeCon
             if (!config.isEnabled()) {
                 return;
             }
-            if (config.getApiUrl() == null) {
-                throw new InvalidRuntimeConfigException("No API URL provided");
+            if (config.getApiUsername() == null) {
+                throw new InvalidRuntimeConfigException("No API username provided");
             }
             if (config.getApiToken() == null) {
                 throw new InvalidRuntimeConfigException("No API token provided");

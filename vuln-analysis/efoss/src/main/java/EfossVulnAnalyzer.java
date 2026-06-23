@@ -30,19 +30,29 @@ import static graphql.schema.idl.RuntimeWiring.newRuntimeWiring;
 final class EfossVulnAnalyzer implements VulnAnalyzer {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(EfossVulnAnalyzer.class);
+    private final String API_BASE_URL = "api.efoss.us.lmco.com/public-api/graphql";
 
     private final HttpClient httpClient;
-    private final String apiBaseUrl;
+    private final String apiUsername;
     private final String apiToken;
-    private final ArrayList<EfossRequestObject> requestObjects;
+    private final ArrayList<EfossRequestObject> requestObjects = new ArrayList();
+    private final String fullUrl;
 
     EfossVulnAnalyzer(
             HttpClient httpClient,
-            String apiBaseUrl,
+            String apiUsername,
             String apiToken) {
         this.httpClient = httpClient;
-        this.apiBaseUrl = apiBaseUrl;
+        this.apiUsername = apiUsername;
         this.apiToken = apiToken;
+
+        StringBuilder builder = new StringBuilder("https://");
+        builder.append(apiUsername);
+        builder.append(":");
+        builder.append(apiToken);
+        builder.append("@");
+        builder.append(API_BASE_URL);
+        this.fullUrl = builder.toString();
     }
 
     @Override
@@ -53,21 +63,22 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
             requestObjects.add(temp);
         }
 
-
+        // TODO: Decide if we like this endpoint or if we want to use getFossComponentRecordsByPurl
+        // or if we want to use one as a backup in case the other fails for some reason
         StringBuilder builder = new StringBuilder("{fossComponentRecords(ids: [");
         for(Iterator<EfossRequestObject> itr = requestObjects.iterator(); itr.hasNext();) {
             EfossRequestObject current = itr.next();
             builder.append("\"");
-            builder.append(current.getId());
+            builder.append(current.getEfossId());
             if(itr.hasNext())
                 builder.append("\", ");
             else
-                builder.append("\"]) {id group licenseIds licenses {licenseId licenseName} purl}}");
+                builder.append("\"]) {id group licenseIds licenses {licenseId licenseName} purl useCaseRisk { distribution use internalCombining }}}");
         }
         String schema = builder.toString();
 
         final var request = HttpRequest.newBuilder()
-                .uri(java.net.URI.create(apiBaseUrl))
+                .uri(java.net.URI.create(fullUrl))
                 .header("Accept", "application/json")
                 .header("Accept-Encoding", "gzip, deflate, br")
                 .header("Content-Type", "application/json")
@@ -75,19 +86,23 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
                 .POST(HttpRequest.BodyPublishers.ofByteArray(schema.getBytes()))
                 .build();
 
+        LOGGER.info("REQUEST IS {}", request);
+
         final HttpResponse<byte[]> response;
         try {
             response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
         } catch (IOException e) {
-            throw new UncheckedIOException("eFOSS API request to %s failed".formatted(apiBaseUrl), e);
+            throw new UncheckedIOException("eFOSS API request to %s failed".formatted(API_BASE_URL), e);
         }
+
+        LOGGER.info("RESPONSE IS {}", response);
 
         if (response.statusCode() >= 200 && response.statusCode() < 300) {
             // TODO: Do some stuff
         }
 
         throw new IllegalStateException(
-                "eFOSS API request to %s failed with status %d".formatted(apiBaseUrl, response.statusCode()));
+                "eFOSS API request to %s failed with status %d".formatted(API_BASE_URL, response.statusCode()));
     }
     
 }
