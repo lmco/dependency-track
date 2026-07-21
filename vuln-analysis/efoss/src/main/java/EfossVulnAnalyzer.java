@@ -61,7 +61,9 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
     public Bom analyze(Bom bom) throws InterruptedException {
         for (final Component component : bom.getComponentsList()) {
             componentMap.put(getEfossId(component), component);
-            // break;
+            if(componentMap.size() == 50){ // 50 is the eFOSS limit, TODO: account for 
+                break;
+            }
         }
 
         LOGGER.info("SIZE IS {}", componentMap.size());
@@ -97,7 +99,7 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
         final HttpResponse<String> response;
         try {
             response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            // LOGGER.info("RESPONSE BODY {}", response.body());
+            // LOGGER.info("RESPONSE BODY FROM EFOSS {}", response.body());
         } catch (IOException e) {
             throw new UncheckedIOException("eFOSS API request to %s failed".formatted(API_URL), e);
         }
@@ -133,14 +135,6 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
         Response response = gson.fromJson(responseBody, Response.class);
 
         for(FossComponentRecords currentRecord : response.data.fossComponentRecords) {
-            List<Component> matchList = componentMap.values().stream().filter(comp -> currentRecord.id.equals(getEfossId(comp))).toList();
-            Component match = matchList.get(0);
-
-            List<LicenseChoice> testingList = match.getLicensesList();
-
-            for(LicenseChoice heremst : testingList){
-                org.cyclonedx.proto.v1_7.License idkman = heremst.getLicense();
-            }
             
             ArrayList<LicenseChoice> choiceList = new ArrayList();
             for(License currentLicense : currentRecord.licenses){
@@ -157,6 +151,9 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
 
                 choiceList.add(tempChoice);
             }
+
+            List<Component> matchList = componentMap.values().stream().filter(comp -> currentRecord.id.equals(getEfossId(comp))).toList();
+            Component match = matchList.get(0);
 
             for(LicenseChoice choice : choiceList){
                 match = Component.newBuilder(match)

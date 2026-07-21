@@ -86,7 +86,7 @@ public final class InvokeVulnAnalyzerActivity implements Activity<InvokeVulnAnal
             // Minor optimization: Do not bother file storage with files that are
             // effectively empty. The fact that a response is returned at all is
             // enough indication that the analyzer succeeded.
-            if (vdr.getVulnerabilitiesCount() == 0) {
+            if (vdr.getVulnerabilitiesCount() == 0 && !arg.getAnalyzerName().equals("efoss")) {
                 LOGGER.debug("Not storing VDR file because no vulnerabilities were found");
                 return InvokeVulnAnalyzerRes.newBuilder().build();
             }

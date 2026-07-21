@@ -18,7 +18,9 @@
  */
 package org.dependencytrack.vulnanalysis;
 
+import alpine.persistence.PaginatedResult;
 import org.cyclonedx.proto.v1_7.Bom;
+import org.cyclonedx.proto.v1_7.Component;
 import org.cyclonedx.proto.v1_7.Property;
 import org.cyclonedx.proto.v1_7.VulnerabilityAffects;
 import org.cyclonedx.proto.v1_7.VulnerabilityReference;
@@ -30,15 +32,19 @@ import org.dependencytrack.filestorage.api.FileStorage;
 import org.dependencytrack.filestorage.proto.v1.FileMetadata;
 import org.dependencytrack.model.FindingAttributionKey;
 import org.dependencytrack.model.FindingKey;
+import org.dependencytrack.model.License;
 import org.dependencytrack.model.Vulnerability;
 import org.dependencytrack.model.VulnerabilityKey;
 import org.dependencytrack.notification.JdbiNotificationEmitter;
 import org.dependencytrack.notification.proto.v1.Notification;
 import org.dependencytrack.notification.proto.v1.VulnerabilityAnalysisDecisionChangeSubject;
 import org.dependencytrack.parser.dependencytrack.BovModelConverter;
+import org.dependencytrack.persistence.QueryManager;
 import org.dependencytrack.persistence.jdbi.AnalysisDao;
 import org.dependencytrack.persistence.jdbi.AnalysisDao.Analysis;
 import org.dependencytrack.persistence.jdbi.AnalysisDao.MakeAnalysisCommand;
+import org.dependencytrack.persistence.jdbi.ComponentDao;
+import org.dependencytrack.persistence.jdbi.ComponentDao.LicenseMetadataUpdate;
 import org.dependencytrack.persistence.jdbi.NotificationSubjectDao;
 import org.dependencytrack.persistence.jdbi.ProjectDao;
 import org.dependencytrack.persistence.jdbi.VulnerabilityAliasDao;
@@ -166,6 +172,9 @@ public final class ReconcileVulnAnalysisResultsActivity implements Activity<Reco
                     }
 
                     collectFindingsFromVdr(analyzerName, vdr, reportedFindings, vulnDetailsByKey, vulnAliasAssertionsByAnalyzer);
+                    if(analyzerName.equals("efoss")){
+                        collectLicensesFromVdr(vdr);
+                    }
                 }
             }
 
@@ -285,6 +294,40 @@ public final class ReconcileVulnAnalysisResultsActivity implements Activity<Reco
                             e);
                 }
             }
+        }
+    }
+
+    private static void collectLicensesFromVdr(Bom vdr) {
+
+        ArrayList<LicenseMetadataUpdate> updates = new ArrayList<>();
+
+        try (var qm = new QueryManager()) {
+            PaginatedResult results = qm.getLicenses();
+            List<License> resList = results.getList(License.class);
+            LOGGER.info("RESLIST IS SIZE {}", resList.size());
+
+            for(Component comp : vdr.getComponentsList()){
+                comp.getLicensesList().stream().forEach(licenseChoice -> {
+                    if(licenseChoice.getChoiceCase().getNumber() <= 1){
+                        // License ID of the License Table, which is an actual text string
+                        // Not to be confused with the License ID of the Metadata object
+                        // Which is just the auto-generated primary key
+                        String name = licenseChoice.getLicense().getName();
+                        License matchingLicense = resList.stream().filter(license -> (license.getName().equals(name))).toList().get(0);
+
+                        updates.add(new LicenseMetadataUpdate(
+                            Long.parseLong(comp.getBomRef()), 
+                            matchingLicense.getId(),
+                            name,
+                            "", // eFOSS doesn't store the URL in any capacity
+                            null));
+                    } // TODO: Decide if we need to handle Cases 2 or 5
+                });
+            }
+            
+            withJdbiHandle(handle -> 
+                handle.attach(ComponentDao.class).updateLicenseMetadata(updates)
+            );
         }
     }
 

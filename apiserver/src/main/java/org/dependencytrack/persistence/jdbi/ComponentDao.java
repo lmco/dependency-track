@@ -101,6 +101,39 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
             """)
     Long getComponentId(@Bind UUID componentUuid);
 
+    default int updateLicenseMetadata(final List<LicenseMetadataUpdate> updates) {
+        if (updates.isEmpty()) {
+            return 0;
+        }
+
+        final var batch = getHandle().prepareBatch("""
+                UPDATE "COMPONENT"
+                   SET "LICENSE_ID" = :resolvedLicenseId
+                     , "LICENSE" = :license
+                     , "LICENSE_URL" = :licenseUrl
+                     , "LICENSE_EXPRESSION" = :licenseExpression
+                 WHERE "ID" = :componentId
+                """);
+        for (final LicenseMetadataUpdate update : updates) {
+            batch.bind("componentId", update.componentId());
+            batch.bind("resolvedLicenseId", update.resolvedLicenseId());
+            batch.bind("license", update.license());
+            batch.bind("licenseUrl", update.licenseUrl());
+            batch.bind("licenseExpression", update.licenseExpression());
+            batch.add();
+        }
+
+        return batch.execute().length;
+    }
+
+    public record LicenseMetadataUpdate(
+            Long componentId,
+            Long resolvedLicenseId,
+            String license,
+            String licenseUrl,
+            String licenseExpression) {
+    }
+
     default Page<Component> listProjectComponents(ListProjectComponentsQuery query) {
         final PageTokenEncoder pageTokenEncoder =
                 getHandle().getConfig(PaginationConfig.class).getPageTokenEncoder();
