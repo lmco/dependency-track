@@ -304,11 +304,13 @@ public final class ReconcileVulnAnalysisResultsActivity implements Activity<Reco
         try (var qm = new QueryManager()) {
             PaginatedResult results = qm.getLicenses();
             List<License> resList = results.getList(License.class);
-            // for(License curr : resList){
-            //     LOGGER.info("LICENSE IS {} {}", curr.getLicenseId(), curr.getName());
-            // }
 
             for(Component comp : vdr.getComponentsList()){
+                if(comp.getLicensesCount() == 0){
+                    updates.add(new LicenseMetadataUpdate(Long.parseLong(comp.getBomRef()), null, null, null, null));
+                    continue;
+                }
+
                 comp.getLicensesList().stream().forEach(licenseChoice -> {
                     if(licenseChoice.getChoiceCase().getNumber() <= 1){
                         // License ID of the License Table, which is an actual text string
@@ -317,7 +319,6 @@ public final class ReconcileVulnAnalysisResultsActivity implements Activity<Reco
                         String name = licenseChoice.getLicense().getName();
                         List<License> matchingLicenseList = resList.stream().filter(license -> (license.getName().equals(name))).toList();
 
-                        // License may not be found in the DB if we don't have licensing info in eFOSS
                         if(matchingLicenseList.size() > 0){
                             License matchingLicense = matchingLicenseList.get(0);
 
@@ -327,7 +328,7 @@ public final class ReconcileVulnAnalysisResultsActivity implements Activity<Reco
                                 name,
                                 "", // eFOSS doesn't store the URL in any capacity
                                 null));
-                        } // else: License not supplied
+                        } // else: Component doesn't exist in eFOSS
                     } // TODO: Decide if we need to handle Cases 2 or 5
                 });
             }

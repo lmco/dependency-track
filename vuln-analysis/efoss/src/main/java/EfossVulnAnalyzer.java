@@ -67,10 +67,9 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
             }
         }
 
-        LOGGER.info("SIZE IS {}", componentMap.size());
-
         // TODO: Decide if we like this endpoint or if we want to use getFossComponentRecordsByPurl
         // or if we want to use one as a backup in case the other fails for some reason
+        // TODO: Also investigate the daily exports
         StringBuilder builder = new StringBuilder("{\"query\": \"query { fossComponentRecords(ids: [");
         for(Iterator<Component> itr = componentMap.values().iterator(); itr.hasNext();) {
             Component current = itr.next();
@@ -86,8 +85,6 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
         String credentials = apiUsername + ":" + apiToken;
         String encodedCredentials = Base64.getEncoder()
                 .encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
-
-        // LOGGER.info("SCHEMA IS {}", schema);
  
         HttpRequest request = HttpRequest.newBuilder()
             .uri(java.net.URI.create(API_URL))
@@ -100,7 +97,6 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
         final HttpResponse<String> response;
         try {
             response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            // LOGGER.info("RESPONSE BODY FROM EFOSS {}", response.body());
         } catch (IOException e) {
             throw new UncheckedIOException("eFOSS API request to %s failed".formatted(API_URL), e);
         }
@@ -136,7 +132,6 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
         Response response = gson.fromJson(responseBody, Response.class);
         HashMap<String, Component> noMatchMap = new HashMap();
 
-        LOGGER.info("SIZE OF FOSS COMPONENT RECORDS IS {}", response.data.fossComponentRecords.size());
         List<FossComponentRecords> fossComponentRecords = response.data.fossComponentRecords;
         for(final String currentKeyId : componentMap.keySet()) {
 
@@ -147,10 +142,8 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
                 for(License currentLicense : matchList.get(0).licenses){
 
                     org.cyclonedx.proto.v1_7.License tempLicense = org.cyclonedx.proto.v1_7.License.newBuilder()
-                        // .setId(currentLicense.id) TODO REVERT
-                        .setId("EPL-2.0")
-                        // .setName(currentLicense.name)
-                        .setName("Eclipse Public License 2.0")
+                        .setId(currentLicense.licenseId)
+                        .setName(currentLicense.licenseName)
                         .build();
 
                     LicenseChoice tempChoice = LicenseChoice.newBuilder()
@@ -175,23 +168,10 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
                 componentMap.put(currentKeyId, matchedComp);
 
             } else {
-                LOGGER.info("NO MATCH FOR {}", currentKeyId);
-                List<LicenseChoice> whatever = componentMap.get(currentKeyId).getLicensesList();
-                LOGGER.info("ITS LICENSE CHOICE LIST SIZE IS {} BUT LICENSE COUNT IS {}", whatever.size(), componentMap.get(currentKeyId).getLicensesCount());
-                for(LicenseChoice now : whatever){
-                    LOGGER.info("LICENSE IS {}", now.getLicense().getName());
-                }
-
                 // Clear licenses of all the components that didn't have a corresponding eFOSS entry
                 Component compToClear = Component.newBuilder(componentMap.get(currentKeyId))
                     .clearLicenses()
                     .build();
-
-                List<LicenseChoice> whatever2 = compToClear.getLicensesList();
-                LOGGER.info("AFTER CLEARING LICENSE CHOICE LIST SIZE IS {}", whatever2.size());
-                for(LicenseChoice now2 : whatever2){
-                    LOGGER.info("LICENSE IS {}", now2.getLicense().getName());
-                }
 
                 componentMap.put(currentKeyId, compToClear);
             }
