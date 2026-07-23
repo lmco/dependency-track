@@ -14,6 +14,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Base64;
 import java.util.List;
+import java.util.Set;
 import java.nio.charset.StandardCharsets;
 
 import com.github.packageurl.MalformedPackageURLException;
@@ -123,7 +124,7 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
             builder.append(purl.getName());
             builder.append(":");
             builder.append(purl.getVersion());
-            return builder.toString();
+            return builder.toString().toLowerCase();
         } catch (MalformedPackageURLException e) {
             LOGGER.debug("Encountered invalid PURL", e);
             return "ErrorId";
@@ -133,38 +134,69 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
     private Bom assembleVdr(String responseBody){
         Gson gson = new Gson();
         Response response = gson.fromJson(responseBody, Response.class);
+        HashMap<String, Component> noMatchMap = new HashMap();
 
-        for(FossComponentRecords currentRecord : response.data.fossComponentRecords) {
-            
-            ArrayList<LicenseChoice> choiceList = new ArrayList();
-            for(License currentLicense : currentRecord.licenses){
-                org.cyclonedx.proto.v1_7.License tempLicense = org.cyclonedx.proto.v1_7.License.newBuilder()
-                                                                    // .setId(currentLicense.id) TODO REVERT
-                                                                    .setId("EPL-2.0")
-                                                                    // .setName(currentLicense.name)
-                                                                    .setName("Eclipse Public License 2.0")
-                                                                    .build();
+        LOGGER.info("SIZE OF FOSS COMPONENT RECORDS IS {}", response.data.fossComponentRecords.size());
+        List<FossComponentRecords> fossComponentRecords = response.data.fossComponentRecords;
+        for(final String currentKeyId : componentMap.keySet()) {
 
-                LicenseChoice tempChoice = LicenseChoice.newBuilder()
+            List<FossComponentRecords> matchList = fossComponentRecords.stream().filter(record -> record.id.toLowerCase().equals(currentKeyId)).toList();
+            if(matchList.size() > 0){ // Items not already in eFOSS will not have a match
+
+                ArrayList<LicenseChoice> choiceList = new ArrayList();
+                for(License currentLicense : matchList.get(0).licenses){
+
+                    org.cyclonedx.proto.v1_7.License tempLicense = org.cyclonedx.proto.v1_7.License.newBuilder()
+                        // .setId(currentLicense.id) TODO REVERT
+                        .setId("EPL-2.0")
+                        // .setName(currentLicense.name)
+                        .setName("Eclipse Public License 2.0")
+                        .build();
+
+                    LicenseChoice tempChoice = LicenseChoice.newBuilder()
                                             .setLicense(tempLicense)
                                             .build();
 
-                choiceList.add(tempChoice);
+                    choiceList.add(tempChoice);
+                }
+
+                // Proto Components must be edited via recreation unless we want to edit the protos themselves
+                // Rebuild once to clear licenses
+                Component matchedComp = Component.newBuilder(componentMap.get(currentKeyId))
+                        .clearLicenses()
+                        .build();
+                // Rebuild in a loop to add licenses. Method is deceiving name wise as
+                // the actual proto implementation only has one License per LicenseChoice.
+                for(LicenseChoice choice : choiceList){
+                    matchedComp = Component.newBuilder(matchedComp)
+                        .addLicenses(choice)
+                        .build();
+                }
+                componentMap.put(currentKeyId, matchedComp);
+
+            } else {
+                LOGGER.info("NO MATCH FOR {}", currentKeyId);
+                List<LicenseChoice> whatever = componentMap.get(currentKeyId).getLicensesList();
+                LOGGER.info("ITS LICENSE CHOICE LIST SIZE IS {} BUT LICENSE COUNT IS {}", whatever.size(), componentMap.get(currentKeyId).getLicensesCount());
+                for(LicenseChoice now : whatever){
+                    LOGGER.info("LICENSE IS {}", now.getLicense().getName());
+                }
+
+                // Clear licenses of all the components that didn't have a corresponding eFOSS entry
+                Component compToClear = Component.newBuilder(componentMap.get(currentKeyId))
+                    .clearLicenses()
+                    .build();
+
+                List<LicenseChoice> whatever2 = compToClear.getLicensesList();
+                LOGGER.info("AFTER CLEARING LICENSE CHOICE LIST SIZE IS {}", whatever2.size());
+                for(LicenseChoice now2 : whatever2){
+                    LOGGER.info("LICENSE IS {}", now2.getLicense().getName());
+                }
+
+                componentMap.put(currentKeyId, compToClear);
             }
-
-            List<Component> matchList = componentMap.values().stream().filter(comp -> currentRecord.id.equals(getEfossId(comp))).toList();
-            Component match = matchList.get(0);
-
-            for(LicenseChoice choice : choiceList){
-                match = Component.newBuilder(match)
-                                .clearLicenses()
-                                .addLicenses(choice)
-                                .build();
-            }
-
-            componentMap.put(currentRecord.id, match);
         }
-        
+
         return Bom.newBuilder()
             .addAllComponents(componentMap.values())
             .build();

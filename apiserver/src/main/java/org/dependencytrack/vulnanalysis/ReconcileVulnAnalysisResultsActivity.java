@@ -304,7 +304,9 @@ public final class ReconcileVulnAnalysisResultsActivity implements Activity<Reco
         try (var qm = new QueryManager()) {
             PaginatedResult results = qm.getLicenses();
             List<License> resList = results.getList(License.class);
-            LOGGER.info("RESLIST IS SIZE {}", resList.size());
+            // for(License curr : resList){
+            //     LOGGER.info("LICENSE IS {} {}", curr.getLicenseId(), curr.getName());
+            // }
 
             for(Component comp : vdr.getComponentsList()){
                 comp.getLicensesList().stream().forEach(licenseChoice -> {
@@ -313,14 +315,19 @@ public final class ReconcileVulnAnalysisResultsActivity implements Activity<Reco
                         // Not to be confused with the License ID of the Metadata object
                         // Which is just the auto-generated primary key
                         String name = licenseChoice.getLicense().getName();
-                        License matchingLicense = resList.stream().filter(license -> (license.getName().equals(name))).toList().get(0);
+                        List<License> matchingLicenseList = resList.stream().filter(license -> (license.getName().equals(name))).toList();
 
-                        updates.add(new LicenseMetadataUpdate(
-                            Long.parseLong(comp.getBomRef()), 
-                            matchingLicense.getId(),
-                            name,
-                            "", // eFOSS doesn't store the URL in any capacity
-                            null));
+                        // License may not be found in the DB if we don't have licensing info in eFOSS
+                        if(matchingLicenseList.size() > 0){
+                            License matchingLicense = matchingLicenseList.get(0);
+
+                            updates.add(new LicenseMetadataUpdate(
+                                Long.parseLong(comp.getBomRef()), 
+                                matchingLicense.getId(),
+                                name,
+                                "", // eFOSS doesn't store the URL in any capacity
+                                null));
+                        } // else: License not supplied
                     } // TODO: Decide if we need to handle Cases 2 or 5
                 });
             }

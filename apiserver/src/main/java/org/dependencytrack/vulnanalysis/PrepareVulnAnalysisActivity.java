@@ -21,6 +21,8 @@ package org.dependencytrack.vulnanalysis;
 import org.cyclonedx.proto.v1_7.Bom;
 import org.cyclonedx.proto.v1_7.Classification;
 import org.cyclonedx.proto.v1_7.Component;
+import org.cyclonedx.proto.v1_7.License;
+import org.cyclonedx.proto.v1_7.LicenseChoice;
 import org.cyclonedx.proto.v1_7.Property;
 import org.dependencytrack.dex.api.Activity;
 import org.dependencytrack.dex.api.ActivityContext;
@@ -174,22 +176,30 @@ public final class PrepareVulnAnalysisActivity implements Activity<PrepareVulnAn
 
         final List<Component> components = withJdbiHandle(handle -> {
             final Query query = handle.createQuery("""
-                    SELECT "ID"
-                         , "GROUP"
-                         , "NAME"
-                         , "VERSION"
-                         , "INTERNAL"
+                    SELECT c."ID"
+                         , c."GROUP"
+                         , c."NAME"
+                         , c."VERSION"
+                         , c."INTERNAL"
+                         , c."LICENSE"
+                         , c."LICENSE_EXPRESSION"
+                         , c."LICENSE_URL"
+                         , l."LICENSEID" AS "RESOLVED_LICENSEID"
+                         , l."NAME" AS "RESOLVED_NAME"
+                         , l."ISCUSTOMLICENSE" AS "RESOLVED_ISCUSTOM"
                     <#if requirements?seq_contains('COMPONENT_CPE')>
-                         , "CPE"
+                         , c."CPE"
                     </#if>
                     <#if requirements?seq_contains('COMPONENT_PURL')>
-                         , "PURL"
+                         , c."PURL"
                     </#if>
                     <#if requirements?seq_contains('COMPONENT_TYPE')>
-                         , "CLASSIFIER"
+                         , c."CLASSIFIER"
                     </#if>
-                      FROM "COMPONENT"
-                     WHERE "PROJECT_ID" = (SELECT "ID" FROM "PROJECT" WHERE "UUID" = CAST(:projectUuid AS UUID))
+                      FROM "COMPONENT" AS c
+                      LEFT JOIN "LICENSE" AS l
+                        ON l."ID" = c."LICENSE_ID"
+                     WHERE c."PROJECT_ID" = (SELECT "ID" FROM "PROJECT" WHERE "UUID" = CAST(:projectUuid AS UUID))
                     """);
 
             return query
@@ -232,6 +242,30 @@ public final class PrepareVulnAnalysisActivity implements Activity<PrepareVulnAn
                                 componentBuilder.addAllProperties(properties);
                             }
                         }
+
+                        final String resolvedLicenseId = rs.getString("resolved_licenseid");
+                        final String resolvedLicenseName = rs.getString("resolved_name");
+                        
+                        final License.Builder licenseBuilder = License.newBuilder();
+                        if (resolvedLicenseId != null) {
+                            if (rs.getBoolean("resolved_iscustom")) {
+                                licenseBuilder.setName(resolvedLicenseName);
+                            } else {
+                                licenseBuilder.setId(resolvedLicenseId);
+                            }
+                        } else {
+                            Optional.ofNullable(rs.getString("license"))
+                                .ifPresent(licenseBuilder::setName);
+                        }
+                        Optional.ofNullable(rs.getString("license_url"))
+                                    .ifPresent(licenseBuilder::setUrl);
+                        if (licenseBuilder.getLicenseCase() != License.LicenseCase.LICENSE_NOT_SET || licenseBuilder.hasUrl()) {
+                            componentBuilder.addLicenses(LicenseChoice.newBuilder().setLicense(licenseBuilder));
+                        }
+
+                        Optional.ofNullable(rs.getString("license_expression"))
+                                .map(expression -> LicenseChoice.newBuilder().setExpression(expression).build())
+                                .ifPresent(componentBuilder::addLicenses);
 
                         return componentBuilder.build();
                     })
