@@ -61,15 +61,12 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
 
     @Override
     public Bom analyze(Bom bom) throws InterruptedException {
-        LOGGER.info("OVERALL SIZE IS {}", bom.getComponentsList().size());
+
         for (int x = 0; x<bom.getComponentsList().size(); x++) {
             Component component = bom.getComponentsList().get(x);
             workingMap.put(getEfossId(component), component);
-            // LOGGER.info("X IS {} AND SIZE IS {} AND EFOSSID IS {}", x, workingMap.size(), getEfossId(component));
-            // LOGGER.info("CONDITIONS ARE {} AND {}", workingMap.size() == 50, x == bom.getComponentsList().size()-1);
 
             if(workingMap.size() == 50 || x == bom.getComponentsList().size()-1){ // 50 is the eFOSS limit
-                LOGGER.info("MAP SIZE AS WE START IS {} AND X IS {}", workingMap.size(), x);
                 // TODO: Decide if we like this endpoint or if we want to use getFossComponentRecordsByPurl
                 // or if we want to use one as a backup in case the other fails for some reason
                 // TODO: Also investigate the daily exports
@@ -100,7 +97,6 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
                 final HttpResponse<String> response;
                 try {
                     response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                    LOGGER.info("RECEIVED RESPONSE");
                 } catch (IOException e) {
                     throw new UncheckedIOException("eFOSS API request to %s failed".formatted(API_URL), e);
                 }
@@ -114,7 +110,7 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
                 }
             }
         }
-        LOGGER.info("ABOUT TO RETURN");
+
         return Bom.newBuilder()
             .addAllComponents(finalComps)
             .build();
@@ -148,15 +144,15 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
 
             List<FossComponentRecords> matchList = fossComponentRecords.stream().filter(record -> record.id.toLowerCase().equals(currentKeyId)).toList();
             if(matchList.size() > 0){ // Items not already in eFOSS will not have a match
-                LOGGER.info("MATCHLIST SIZE IS {}", matchList.size());
+
                 ArrayList<LicenseChoice> choiceList = new ArrayList();
                 for(License currentLicense : matchList.get(0).licenses){
 
                     org.cyclonedx.proto.v1_7.License tempLicense = org.cyclonedx.proto.v1_7.License.newBuilder()
-                        // .setId(currentLicense.licenseId)
-                        // .setName(currentLicense.licenseName)
-                        .setId("EPL-2.0")
-                        .setName("Eclipse Public License 2.0")
+                        .setId(currentLicense.licenseId)
+                        .setName(currentLicense.licenseName)
+                        // .setId("EPL-2.0")
+                        // .setName("Eclipse Public License 2.0")
                         .build();
 
                     LicenseChoice tempChoice = LicenseChoice.newBuilder()
@@ -168,20 +164,10 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
 
                 // Proto Components must be edited via recreation unless we want to edit the protos themselves
                 // Rebuild once to clear licenses
-                if(currentKeyId.equals("maven:org.slf4j:slf4j-api:2.0.17")){
-                    Component DEBUG = workingMap.get(currentKeyId);
-                    LOGGER.info("SLF4J LICENSE SIZE IS {}", DEBUG.getLicensesCount());
-                    List<LicenseChoice> stupidList = DEBUG.getLicensesList();
-                    LicenseChoice stupidChoice = stupidList.get(0);
-                    org.cyclonedx.proto.v1_7.License stupidLice = stupidChoice.getLicense();
-                    LOGGER.info("SLF4J LICENSE 0 IS {}", stupidLice.getName());
-                }
                 Component matchedComp = Component.newBuilder(workingMap.get(currentKeyId))
                         .clearLicenses()
                         .build();
-                if(currentKeyId.equals("maven:org.slf4j:slf4j-api:2.0.17")){
-                    LOGGER.info("CLEARED SLF4J LICENSE SIZE IS {}", matchedComp.getLicensesCount());
-                }
+
                 // Rebuild in a loop to add licenses. Method is deceiving name wise as
                 // the actual proto implementation only has one License per LicenseChoice.
                 for(LicenseChoice choice : choiceList){
@@ -189,15 +175,10 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
                         .addLicenses(choice)
                         .build();
                 }
-                if(currentKeyId.equals("maven:org.slf4j:slf4j-api:2.0.17")){
-                    LOGGER.info("POST LICENSE SIZE IS {}", matchedComp.getLicensesCount());
-                    org.cyclonedx.proto.v1_7.License stupidLice = matchedComp.getLicensesList().get(0).getLicense();
-                    LOGGER.info("POST LICENSE 0 IS {}", stupidLice.getName());
-                }
-                workingMap.put(currentKeyId, matchedComp);
+
+                finalComps.add(matchedComp);
 
             } else {
-                LOGGER.info("NO EFOSS MATCH FOR {}", currentKeyId);
                 // Clear licenses of all the components that didn't have a corresponding eFOSS entry
                 Component compToClear = Component.newBuilder(workingMap.get(currentKeyId))
                     .clearLicenses()
