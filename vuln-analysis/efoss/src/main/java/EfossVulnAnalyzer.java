@@ -47,7 +47,8 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
     private final HttpClient httpClient;
     private final String apiUsername;
     private final String apiToken;
-    private final HashMap<String, Component> componentMap = new HashMap();
+    private final HashMap<String, Component> workingMap = new HashMap();
+    private final ArrayList<Component> finalComps = new ArrayList();
 
     EfossVulnAnalyzer(
             HttpClient httpClient,
@@ -60,53 +61,62 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
 
     @Override
     public Bom analyze(Bom bom) throws InterruptedException {
-        for (final Component component : bom.getComponentsList()) {
-            componentMap.put(getEfossId(component), component);
-            if(componentMap.size() == 50){ // 50 is the eFOSS limit, TODO: account for 
-                break;
+
+        for (int x = 0; x<bom.getComponentsList().size(); x++) {
+            Component component = bom.getComponentsList().get(x);
+            workingMap.put(getEfossId(component), component);
+
+            if(workingMap.size() == 50 || x == bom.getComponentsList().size()-1){ // 50 is the eFOSS limit
+                // TODO: Decide if we like this endpoint or if we want to use getFossComponentRecordsByPurl
+                // or if we want to use one as a backup in case the other fails for some reason
+                // TODO: Also investigate the daily exports
+                StringBuilder builder = new StringBuilder("{\"query\": \"query { fossComponentRecords(ids: [");
+                for(Iterator<Component> itr = workingMap.values().iterator(); itr.hasNext();) {
+                    Component current = itr.next();
+                    builder.append("\\\"");
+                    builder.append(getEfossId(current));
+                    if(itr.hasNext())
+                        builder.append("\\\", ");
+                    else
+                        builder.append("\\\"]) {id group licenseIds licenses {licenseId licenseName} purl useCaseRisk { distribution use internalCombining }}}\"}");
+                }
+                String schema = builder.toString();
+
+                String credentials = apiUsername + ":" + apiToken;
+                String encodedCredentials = Base64.getEncoder()
+                        .encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
+        
+                HttpRequest request = HttpRequest.newBuilder()
+                    .uri(java.net.URI.create(API_URL))
+                    .header("authorization", "Basic " + encodedCredentials)
+                    .header("content-type", "application/json")
+                    .method("POST", HttpRequest.BodyPublishers.ofString(schema))
+                    .build();
+
+
+                final HttpResponse<String> response;
+                try {
+                    response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                } catch (IOException e) {
+                    throw new UncheckedIOException("eFOSS API request to %s failed".formatted(API_URL), e);
+                }
+
+                if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                    extractLicenses(response.body());
+                    workingMap.clear();
+                }
+
+                throw new IllegalStateException(
+                        "eFOSS API request to %s failed with status %d".formatted(API_URL, response.statusCode()));
+
+            } else {
+                continue;
             }
         }
 
-        // TODO: Decide if we like this endpoint or if we want to use getFossComponentRecordsByPurl
-        // or if we want to use one as a backup in case the other fails for some reason
-        // TODO: Also investigate the daily exports
-        StringBuilder builder = new StringBuilder("{\"query\": \"query { fossComponentRecords(ids: [");
-        for(Iterator<Component> itr = componentMap.values().iterator(); itr.hasNext();) {
-            Component current = itr.next();
-            builder.append("\\\"");
-            builder.append(getEfossId(current));
-            if(itr.hasNext())
-                builder.append("\\\", ");
-            else
-                builder.append("\\\"]) {id group licenseIds licenses {licenseId licenseName} purl useCaseRisk { distribution use internalCombining }}}\"}");
-        }
-        String schema = builder.toString();
-
-        String credentials = apiUsername + ":" + apiToken;
-        String encodedCredentials = Base64.getEncoder()
-                .encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
- 
-        HttpRequest request = HttpRequest.newBuilder()
-            .uri(java.net.URI.create(API_URL))
-            .header("authorization", "Basic " + encodedCredentials)
-            .header("content-type", "application/json")
-            .method("POST", HttpRequest.BodyPublishers.ofString(schema))
+        return Bom.newBuilder()
+            .addAllComponents(finalComps)
             .build();
-
-
-        final HttpResponse<String> response;
-        try {
-            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        } catch (IOException e) {
-            throw new UncheckedIOException("eFOSS API request to %s failed".formatted(API_URL), e);
-        }
-
-        if (response.statusCode() >= 200 && response.statusCode() < 300) {
-            return assembleVdr(response.body());
-        }
-
-        throw new IllegalStateException(
-                "eFOSS API request to %s failed with status %d".formatted(API_URL, response.statusCode()));
     }
 
     private String getEfossId(Component component){
@@ -127,13 +137,13 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
         }
     }
 
-    private Bom assembleVdr(String responseBody){
+    private void extractLicenses(String responseBody){
         Gson gson = new Gson();
         Response response = gson.fromJson(responseBody, Response.class);
         HashMap<String, Component> noMatchMap = new HashMap();
 
         List<FossComponentRecords> fossComponentRecords = response.data.fossComponentRecords;
-        for(final String currentKeyId : componentMap.keySet()) {
+        for(final String currentKeyId : workingMap.keySet()) {
 
             List<FossComponentRecords> matchList = fossComponentRecords.stream().filter(record -> record.id.toLowerCase().equals(currentKeyId)).toList();
             if(matchList.size() > 0){ // Items not already in eFOSS will not have a match
@@ -142,8 +152,10 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
                 for(License currentLicense : matchList.get(0).licenses){
 
                     org.cyclonedx.proto.v1_7.License tempLicense = org.cyclonedx.proto.v1_7.License.newBuilder()
-                        .setId(currentLicense.licenseId)
-                        .setName(currentLicense.licenseName)
+                        // .setId(currentLicense.licenseId)
+                        // .setName(currentLicense.licenseName)
+                        .setId("EPL-2.0")
+                        .setName("Eclipse Public License 2.0")
                         .build();
 
                     LicenseChoice tempChoice = LicenseChoice.newBuilder()
@@ -155,7 +167,7 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
 
                 // Proto Components must be edited via recreation unless we want to edit the protos themselves
                 // Rebuild once to clear licenses
-                Component matchedComp = Component.newBuilder(componentMap.get(currentKeyId))
+                Component matchedComp = Component.newBuilder(workingMap.get(currentKeyId))
                         .clearLicenses()
                         .build();
                 // Rebuild in a loop to add licenses. Method is deceiving name wise as
@@ -165,21 +177,17 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
                         .addLicenses(choice)
                         .build();
                 }
-                componentMap.put(currentKeyId, matchedComp);
+                workingMap.put(currentKeyId, matchedComp);
 
             } else {
                 // Clear licenses of all the components that didn't have a corresponding eFOSS entry
-                Component compToClear = Component.newBuilder(componentMap.get(currentKeyId))
+                Component compToClear = Component.newBuilder(workingMap.get(currentKeyId))
                     .clearLicenses()
                     .build();
 
-                componentMap.put(currentKeyId, compToClear);
+                workingMap.put(currentKeyId, compToClear);
             }
         }
-
-        return Bom.newBuilder()
-            .addAllComponents(componentMap.values())
-            .build();
     }
 
     final class Response {
