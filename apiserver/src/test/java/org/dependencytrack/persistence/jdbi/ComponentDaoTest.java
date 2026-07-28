@@ -24,6 +24,7 @@ import org.dependencytrack.model.AnalysisResponse;
 import org.dependencytrack.model.AnalysisState;
 import org.dependencytrack.model.Component;
 import org.dependencytrack.model.DependencyMetrics;
+import org.dependencytrack.model.License;
 import org.dependencytrack.model.Policy;
 import org.dependencytrack.model.PolicyCondition;
 import org.dependencytrack.model.PolicyViolation;
@@ -42,6 +43,7 @@ import javax.jdo.JDOObjectNotFoundException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Date;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
@@ -161,6 +163,48 @@ public class ComponentDaoTest extends PersistenceCapableTest {
                 component.getId(), DateUtil.parseShortDate("20250101").toInstant())).isEmpty());
     }
 
+    @Test
+    void updateLicenseMetadata_hasLicense() {
+        final var project = qm.createProject("acme-app", "Description 1", "1.0.0", null, null, null, null, false);
+
+        final var componentToUpdate = new Component();
+        componentToUpdate.setName("acme-lib");
+        componentToUpdate.setVersion("1.0.0");
+        componentToUpdate.setProject(project);
+        qm.persist(componentToUpdate);
+
+        final var newLicense = new License();
+        newLicense.setId((long)1);
+        newLicense.setName("MIT License");
+        qm.persist(newLicense);
+
+        componentDao.updateLicenseMetadata(List.of(
+            new ComponentDao.LicenseMetadataUpdate(
+                    componentToUpdate.getId(),
+                    newLicense.getId(),
+                    newLicense.getName(),
+                    "",
+                    null)));
+
+        qm.getPersistenceManager().refresh(componentToUpdate);
+
+        assertThat(componentToUpdate.getLicense()).isEqualTo(newLicense.getName());
+        assertThat(componentToUpdate.getLicenseUrl()).isEqualTo("");
+        assertThat(componentToUpdate.getLicenseExpression()).isNull();
+    }
+
+    @Test
+    void updateLicenseMetadata_hasNoLicense() {
+
+    }
+
+    @Test
+    void updateLicenseMetadata_hasNoUpdates() {
+        final var project = qm.createProject("acme-app", "Description 1", "1.0.0", null, null, null, null, false);
+        int updates = componentDao.updateLicenseMetadata(List.of());
+        assertThat(updates).isEqualTo(0);
+    }
+    
     @Test
     public void testGetComponentId() {
         final var project = qm.createProject("acme-app", "Description 1", "1.0.0", null, null, null, null, false);

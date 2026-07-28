@@ -1,0 +1,124 @@
+{
+  "data": {
+    "fossComponentRecords": [
+      {
+        "id": "maven:net.logstash.logback:logstash-logback-encoder:8.1",
+        "group": "net.logstash.logback",
+        "licenseIds": [
+          "Apache-2.0"
+        ],
+        "licenses": [
+          {
+            "licenseId": "Apache-2.0",
+            "licenseName": "Apache License 2.0"
+          }
+        ],
+        "purl": "pkg:maven/net.logstash.logback/logstash-logback-encoder@8.1",
+        "useCaseRisk": {
+          "distribution": "MED",
+          "use": "LOW",
+          "internalCombining": "LOW"
+        }
+      },
+      {
+        "id": "maven:io.prometheus:simpleclient_tracer_otel:0.16.0",
+        "group": "io.prometheus",
+        "licenseIds": [
+          "Apache-2.0",
+          "CC0-1.0",
+          "CC-BY-SA-3.0",
+          "CUSTOM-Public-Domain"
+        ],
+        "licenses": [
+          {
+            "licenseId": "Apache-2.0",
+            "licenseName": "Apache License 2.0"
+          },
+          {
+            "licenseId": "CC0-1.0",
+            "licenseName": "Creative Commons Zero v1.0 Universal"
+          },
+          {
+            "licenseId": "CC-BY-SA-3.0",
+            "licenseName": "Creative Commons Attribution Share Alike 3.0 Unported"
+          },
+          {
+            "licenseId": "CUSTOM-Public-Domain",
+            "licenseName": "Public Domain"
+          }
+        ],
+        "purl": "pkg:maven/io.prometheus/simpleclient_tracer_otel@0.16.0",
+        "useCaseRisk": {
+          "distribution": "HIGH",
+          "use": "HIGH",
+          "internalCombining": "HIGH"
+        }
+      },
+      {
+        "id": "maven:org.glassfish.jersey.inject:jersey-hk2:4.0.2",
+        "group": "org.glassfish.jersey.inject",
+        "licenseIds": [
+          "Apache-2.0",
+          "BSD-3-Clause",
+          "CC0-1.0",
+          "Classpath-exception-2.0",
+          "CUSTOM-Public-Domain",
+          "EPL-2.0",
+          "GPL-1.0-or-later",
+          "GPL-2.0-only",
+          "GPL-2.0-or-later",
+          "MIT",
+          "W3C"
+        ],
+        "licenses": [
+          {
+            "licenseId": "Apache-2.0",
+            "licenseName": "Apache License 2.0"
+          },
+          {
+            "licenseId": "BSD-3-Clause",
+            "licenseName": "BSD 3-Clause \"New\" or \"Revised\" License"
+          },
+          {
+            "licenseId": "CC0-1.0",
+            "licenseName": "Creative Commons Zero v1.0 Universal"
+          },
+          {
+            "licenseId": "CUSTOM-Public-Domain",
+            "licenseName": "Public Domain"
+          },
+          {
+            "licenseId": "EPL-2.0",
+            "licenseName": "Eclipse Public License 2.0"
+          },
+          {
+            "licenseId": "GPL-1.0-or-later",
+            "licenseName": "GNU General Public License v1.0 or later"
+          },
+          {
+            "licenseId": "GPL-2.0-only",
+            "licenseName": "GNU General Public License v2.0 only"
+          },
+          {
+            "licenseId": "GPL-2.0-or-later",
+            "licenseName": "GNU General Public License v2.0 or later"
+          },
+          {
+            "licenseId": "MIT",
+            "licenseName": "MIT License"
+          },
+          {
+            "licenseId": "W3C",
+            "licenseName": "W3C Software Notice and License (2002-12-31)"
+          }
+        ],
+        "purl": "pkg:maven/org.glassfish.jersey.inject/jersey-hk2@4.0.2",
+        "useCaseRisk": {
+          "distribution": "HIGH",
+          "use": "HIGH",
+          "internalCombining": "HIGH"
+        }
+      }
+    ]
+  }
+}

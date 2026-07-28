@@ -1,0 +1,25 @@
+{
+  "data": {
+    "fossComponentRecords": [
+      {
+        "id": "maven:net.logstash.logback:logstash-logback-encoder:8.1",
+        "group": "net.logstash.logback",
+        "licenseIds": [
+          "Apache-2.0"
+        ],
+        "licenses": [
+          {
+            "licenseId": "Apache-2.0",
+            "licenseName": "Apache License 2.0"
+          }
+        ],
+        "purl": "pkg:maven/net.logstash.logback/logstash-logback-encoder@8.1",
+        "useCaseRisk": {
+          "distribution": "MED",
+          "use": "LOW",
+          "internalCombining": "LOW"
+        }
+      }
+    ]
+  }
+}
