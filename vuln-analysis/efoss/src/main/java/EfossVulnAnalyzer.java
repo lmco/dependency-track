@@ -62,8 +62,7 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
     public Bom analyze(Bom bom) throws InterruptedException {
         final ArrayList<Component> finalComps = new ArrayList();
 
-        // List<Component> notFound = callGetComponentRecordsByPurl(bom.getComponentsList(), finalComps);
-        List<Component> notFound = bom.getComponentsList();
+        List<Component> notFound = callGetComponentRecordsByPurl(bom.getComponentsList(), finalComps);
         callFossComponentRecords(notFound, finalComps);
 
         return Bom.newBuilder()
@@ -82,15 +81,21 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
 
         for (int x = 0; x<compsToQuery.size(); x++) {
             Component component = compsToQuery.get(x);
-            // eFOSS doesn't support qualifiers, so rebuild the PURL
-            PackageURL rebuiltPurl = new PackageURLBuilder.aPackageURL()
-                                        .withType(component.getPurl().getType())
-                                        .withNamespace(component.getPurl().getNamespace())
-                                        .withName(component.getPurl().getName())
-                                        .withVersion(component.getPurl().getVersion())
-                                        .withSubpath(component.getPurl().getSubpath())
-                                        .build();
-            workingMap.put(rebuiltPurl.toString(), component);
+            try {
+                PackageURL compPurl = new PackageURL(component.getPurl());
+                // eFOSS doesn't support qualifiers, so rebuild the PURL
+                PackageURL rebuiltPurl = PackageURLBuilder.aPackageURL()
+                                            .withType(compPurl.getType())
+                                            .withNamespace(compPurl.getNamespace())
+                                            .withName(compPurl.getName())
+                                            .withVersion(compPurl.getVersion())
+                                            .withSubpath(compPurl.getSubpath())
+                                            .build();
+                workingMap.put(rebuiltPurl.toString(), component);
+            } catch (MalformedPackageURLException e) {
+                LOGGER.debug("Encountered invalid PURL", e);
+                return new ArrayList<>();
+            }
 
             if(workingMap.size() == 50 || x == compsToQuery.size()-1){ // 50 is the eFOSS limit
                 StringBuilder builder = new StringBuilder("{\"query\": \"query { getFossComponentRecordsByPurl(componentsPurl: [");
@@ -266,7 +271,7 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
     }
 
     class Data {
-        @SerializedName("fossComponentRecords")
+        @SerializedName(value="fossComponentRecords", alternate={"getFossComponentRecordsByPurl"})
         List<FossComponentRecords> fossComponentRecords;
     }
 
