@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 
 import com.github.packageurl.MalformedPackageURLException;
 import com.github.packageurl.PackageURL;
+import com.github.packageurl.PackageURLBuilder;
 
 import org.cyclonedx.proto.v1_7.Bom;
 import org.cyclonedx.proto.v1_7.Component;
@@ -47,8 +48,6 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
     private final HttpClient httpClient;
     private final String apiUsername;
     private final String apiToken;
-    private final HashMap<String, Component> workingMap = new HashMap();
-    private final ArrayList<Component> finalComps = new ArrayList();
 
     EfossVulnAnalyzer(
             HttpClient httpClient,
@@ -59,26 +58,50 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
         this.apiToken = apiToken;
     }
 
-    @Override
+    @Override // TODO: Investigate the daily exports
     public Bom analyze(Bom bom) throws InterruptedException {
+        final ArrayList<Component> finalComps = new ArrayList();
 
-        for (int x = 0; x<bom.getComponentsList().size(); x++) {
-            Component component = bom.getComponentsList().get(x);
-            workingMap.put(getEfossId(component), component);
+        // List<Component> notFound = callGetComponentRecordsByPurl(bom.getComponentsList(), finalComps);
+        List<Component> notFound = bom.getComponentsList();
+        callFossComponentRecords(notFound, finalComps);
 
-            if(workingMap.size() == 50 || x == bom.getComponentsList().size()-1){ // 50 is the eFOSS limit
-                // TODO: Decide if we like this endpoint or if we want to use getFossComponentRecordsByPurl
-                // or if we want to use one as a backup in case the other fails for some reason
-                // TODO: Also investigate the daily exports
-                StringBuilder builder = new StringBuilder("{\"query\": \"query { fossComponentRecords(ids: [");
-                for(Iterator<Component> itr = workingMap.values().iterator(); itr.hasNext();) {
-                    Component current = itr.next();
+        return Bom.newBuilder()
+            .addAllComponents(finalComps)
+            .build();
+    }
+
+    private ArrayList<Component> callGetComponentRecordsByPurl(List<Component> compsToQuery, ArrayList<Component> finalComps) throws InterruptedException {
+        LOGGER.info("COMPS TO QUERY 1: {}", compsToQuery.size());
+        final HashMap<String, Component> workingMap = new HashMap();
+        final ArrayList<Component> returnable = new ArrayList();
+
+        // for(Component current : compsToQuery) {
+        //     returnable.add(current);
+        // }
+
+        for (int x = 0; x<compsToQuery.size(); x++) {
+            Component component = compsToQuery.get(x);
+            // eFOSS doesn't support qualifiers, so rebuild the PURL
+            PackageURL rebuiltPurl = new PackageURLBuilder.aPackageURL()
+                                        .withType(component.getPurl().getType())
+                                        .withNamespace(component.getPurl().getNamespace())
+                                        .withName(component.getPurl().getName())
+                                        .withVersion(component.getPurl().getVersion())
+                                        .withSubpath(component.getPurl().getSubpath())
+                                        .build();
+            workingMap.put(rebuiltPurl.toString(), component);
+
+            if(workingMap.size() == 50 || x == compsToQuery.size()-1){ // 50 is the eFOSS limit
+                StringBuilder builder = new StringBuilder("{\"query\": \"query { getFossComponentRecordsByPurl(componentsPurl: [");
+                for(Iterator<String> itr = workingMap.keySet().iterator(); itr.hasNext();) {
+                    String current = itr.next();
                     builder.append("\\\"");
-                    builder.append(getEfossId(current));
+                    builder.append(current);
                     if(itr.hasNext())
                         builder.append("\\\", ");
                     else
-                        builder.append("\\\"]) {id group licenseIds licenses {licenseId licenseName} purl useCaseRisk { distribution use internalCombining }}}\"}");
+                        builder.append("\\\"]) {id licenses {licenseId licenseName} useCaseRisk { distribution use internalCombining }}}\"}");
                 }
                 String schema = builder.toString();
 
@@ -102,7 +125,8 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
                 }
 
                 if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                    extractLicenses(response.body());
+                    LOGGER.info("RESPONSE BODY IS: {}", response.body());
+                    extractLicenses(response.body(), workingMap, finalComps);
                     workingMap.clear();
                 } else{
                     throw new IllegalStateException(
@@ -111,22 +135,70 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
             }
         }
 
-        return Bom.newBuilder()
-            .addAllComponents(finalComps)
-            .build();
+        return returnable;
+    }
+
+    private void callFossComponentRecords(List<Component> compsToQuery, ArrayList<Component> finalComps) throws InterruptedException {
+        LOGGER.info("COMPS TO QUERY 2: {}", compsToQuery.size());
+        final HashMap<String, Component> workingMap = new HashMap();
+
+        for (int x = 0; x<compsToQuery.size(); x++) {
+            Component component = compsToQuery.get(x);
+            workingMap.put(getEfossId(component), component);
+
+            if(workingMap.size() == 50 || x == compsToQuery.size()-1){ // 50 is the eFOSS limit
+                StringBuilder builder = new StringBuilder("{\"query\": \"query { fossComponentRecords(ids: [");
+                for(Iterator<Component> itr = workingMap.values().iterator(); itr.hasNext();) {
+                    Component current = itr.next();
+                    builder.append("\\\"");
+                    builder.append(getEfossId(current)); // TODO: why didn't i just use the keys?
+                    if(itr.hasNext())
+                        builder.append("\\\", ");
+                    else
+                        builder.append("\\\"]) {id licenses {licenseId licenseName} useCaseRisk { distribution use internalCombining }}}\"}");
+                }
+                String schema = builder.toString();
+
+                String credentials = apiUsername + ":" + apiToken;
+                String encodedCredentials = Base64.getEncoder()
+                        .encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
+        
+                HttpRequest request = HttpRequest.newBuilder()
+                    .uri(java.net.URI.create(API_URL))
+                    .header("authorization", "Basic " + encodedCredentials)
+                    .header("content-type", "application/json")
+                    .method("POST", HttpRequest.BodyPublishers.ofString(schema))
+                    .build();
+
+
+                final HttpResponse<String> response;
+                try {
+                    response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                } catch (IOException e) {
+                    throw new UncheckedIOException("eFOSS API request to %s failed".formatted(API_URL), e);
+                }
+
+                if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                    extractLicenses(response.body(), workingMap, finalComps);
+                    workingMap.clear();
+                } else{
+                    throw new IllegalStateException(
+                        "eFOSS API request to %s failed with status %d".formatted(API_URL, response.statusCode()));
+                }
+            }
+        }
     }
 
     private String getEfossId(Component component){
-        // TODO: Rely on purl as a backup to the pieces of the component
         try {
             PackageURL purl = new PackageURL(component.getPurl());
             StringBuilder builder = new StringBuilder(purl.getType());
             builder.append(":");
             builder.append(component.getGroup());
             builder.append(":");
-            builder.append(purl.getName());
+            builder.append(component.getName());
             builder.append(":");
-            builder.append(purl.getVersion());
+            builder.append(component.getVersion());
             return builder.toString().toLowerCase();
         } catch (MalformedPackageURLException e) {
             LOGGER.debug("Encountered invalid PURL", e);
@@ -134,7 +206,7 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
         }
     }
 
-    private void extractLicenses(String responseBody){
+    private void extractLicenses(String responseBody, HashMap<String, Component> workingMap, ArrayList<Component> finalComps){
         Gson gson = new Gson();
         Response response = gson.fromJson(responseBody, Response.class);
         HashMap<String, Component> noMatchMap = new HashMap();
@@ -200,10 +272,7 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
 
     final class FossComponentRecords {
         String id;
-        String group;
-        List<String> licenseIds;
         List<License> licenses;
-        String purl;
         UseCaseRisk useCaseRisk;
     }
 
