@@ -61,7 +61,6 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
     @Override // TODO: Investigate the daily exports
     public Bom analyze(Bom bom) throws InterruptedException {
         final ArrayList<Component> finalComps = new ArrayList();
-
         List<Component> notFound = callGetComponentRecordsByPurl(bom.getComponentsList(), finalComps);
         callFossComponentRecords(notFound, finalComps);
 
@@ -71,13 +70,8 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
     }
 
     private ArrayList<Component> callGetComponentRecordsByPurl(List<Component> compsToQuery, ArrayList<Component> finalComps) throws InterruptedException {
-        LOGGER.info("COMPS TO QUERY 1: {}", compsToQuery.size());
         final HashMap<String, Component> workingMap = new HashMap();
-        final ArrayList<Component> returnable = new ArrayList();
-
-        // for(Component current : compsToQuery) {
-        //     returnable.add(current);
-        // }
+        final ArrayList<Component> notFound = new ArrayList();
 
         for (int x = 0; x<compsToQuery.size(); x++) {
             Component component = compsToQuery.get(x);
@@ -99,6 +93,58 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
 
             if(workingMap.size() == 50 || x == compsToQuery.size()-1){ // 50 is the eFOSS limit
                 StringBuilder builder = new StringBuilder("{\"query\": \"query { getFossComponentRecordsByPurl(componentsPurl: [");
+                for(Iterator<String> itr = workingMap.keySet().iterator(); itr.hasNext();) {
+                    String current = itr.next();
+                    builder.append("\\\"");
+                    builder.append(current);
+                    if(itr.hasNext())
+                        builder.append("\\\", ");
+                    else
+                        builder.append("\\\"]) {id purl licenses {licenseId licenseName} useCaseRisk { distribution use internalCombining }}}\"}");
+                }
+                String schema = builder.toString();
+
+                String credentials = apiUsername + ":" + apiToken;
+                String encodedCredentials = Base64.getEncoder()
+                        .encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
+        
+                HttpRequest request = HttpRequest.newBuilder()
+                    .uri(java.net.URI.create(API_URL))
+                    .header("authorization", "Basic " + encodedCredentials)
+                    .header("content-type", "application/json")
+                    .method("POST", HttpRequest.BodyPublishers.ofString(schema))
+                    .build();
+
+
+                final HttpResponse<String> response;
+                try {
+                    response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                } catch (IOException e) {
+                    throw new UncheckedIOException("eFOSS API request to %s failed".formatted(API_URL), e);
+                }
+
+                if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                    extractLicensesPurl(response.body(), workingMap, finalComps, notFound);
+                    workingMap.clear();
+                } else{
+                    throw new IllegalStateException(
+                        "eFOSS API request to %s failed with status %d".formatted(API_URL, response.statusCode()));
+                }
+            }
+        }
+
+        return notFound;
+    }
+
+    private void callFossComponentRecords(List<Component> compsToQuery, ArrayList<Component> finalComps) throws InterruptedException {
+        final HashMap<String, Component> workingMap = new HashMap();
+
+        for (int x = 0; x<compsToQuery.size(); x++) {
+            Component component = compsToQuery.get(x);
+            workingMap.put(getEfossId(component), component);
+
+            if(workingMap.size() == 50 || x == compsToQuery.size()-1){ // 50 is the eFOSS limit
+                StringBuilder builder = new StringBuilder("{\"query\": \"query { fossComponentRecords(ids: [");
                 for(Iterator<String> itr = workingMap.keySet().iterator(); itr.hasNext();) {
                     String current = itr.next();
                     builder.append("\\\"");
@@ -130,61 +176,7 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
                 }
 
                 if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                    LOGGER.info("RESPONSE BODY IS: {}", response.body());
-                    extractLicenses(response.body(), workingMap, finalComps);
-                    workingMap.clear();
-                } else{
-                    throw new IllegalStateException(
-                        "eFOSS API request to %s failed with status %d".formatted(API_URL, response.statusCode()));
-                }
-            }
-        }
-
-        return returnable;
-    }
-
-    private void callFossComponentRecords(List<Component> compsToQuery, ArrayList<Component> finalComps) throws InterruptedException {
-        LOGGER.info("COMPS TO QUERY 2: {}", compsToQuery.size());
-        final HashMap<String, Component> workingMap = new HashMap();
-
-        for (int x = 0; x<compsToQuery.size(); x++) {
-            Component component = compsToQuery.get(x);
-            workingMap.put(getEfossId(component), component);
-
-            if(workingMap.size() == 50 || x == compsToQuery.size()-1){ // 50 is the eFOSS limit
-                StringBuilder builder = new StringBuilder("{\"query\": \"query { fossComponentRecords(ids: [");
-                for(Iterator<Component> itr = workingMap.values().iterator(); itr.hasNext();) {
-                    Component current = itr.next();
-                    builder.append("\\\"");
-                    builder.append(getEfossId(current)); // TODO: why didn't i just use the keys?
-                    if(itr.hasNext())
-                        builder.append("\\\", ");
-                    else
-                        builder.append("\\\"]) {id licenses {licenseId licenseName} useCaseRisk { distribution use internalCombining }}}\"}");
-                }
-                String schema = builder.toString();
-
-                String credentials = apiUsername + ":" + apiToken;
-                String encodedCredentials = Base64.getEncoder()
-                        .encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
-        
-                HttpRequest request = HttpRequest.newBuilder()
-                    .uri(java.net.URI.create(API_URL))
-                    .header("authorization", "Basic " + encodedCredentials)
-                    .header("content-type", "application/json")
-                    .method("POST", HttpRequest.BodyPublishers.ofString(schema))
-                    .build();
-
-
-                final HttpResponse<String> response;
-                try {
-                    response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                } catch (IOException e) {
-                    throw new UncheckedIOException("eFOSS API request to %s failed".formatted(API_URL), e);
-                }
-
-                if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                    extractLicenses(response.body(), workingMap, finalComps);
+                    extractLicensesRecords(response.body(), workingMap, finalComps);
                     workingMap.clear();
                 } else{
                     throw new IllegalStateException(
@@ -211,7 +203,57 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
         }
     }
 
-    private void extractLicenses(String responseBody, HashMap<String, Component> workingMap, ArrayList<Component> finalComps){
+    private void extractLicensesPurl(String responseBody, HashMap<String, Component> workingMap, ArrayList<Component> finalComps, ArrayList<Component> notFound){
+        Gson gson = new Gson();
+        Response response = gson.fromJson(responseBody, Response.class);
+        HashMap<String, Component> noMatchMap = new HashMap();
+
+        List<FossComponentRecords> fossComponentRecords = response.data.fossComponentRecords;
+        for(final String currentKeyId : workingMap.keySet()) {
+
+            List<FossComponentRecords> matchList = fossComponentRecords.stream().filter(record -> record.purl.toLowerCase().equals(currentKeyId)).toList();
+            if(matchList.size() > 0){ // Items not already in eFOSS will not have a match
+
+                ArrayList<LicenseChoice> choiceList = new ArrayList();
+                for(License currentLicense : matchList.get(0).licenses){
+
+                    org.cyclonedx.proto.v1_7.License tempLicense = org.cyclonedx.proto.v1_7.License.newBuilder()
+                        .setId(currentLicense.licenseId)
+                        .setName(currentLicense.licenseName)
+                        // .setId("EPL-2.0")
+                        // .setName("Eclipse Public License 2.0")
+                        .build();
+
+                    LicenseChoice tempChoice = LicenseChoice.newBuilder()
+                                            .setLicense(tempLicense)
+                                            .build();
+
+                    choiceList.add(tempChoice);
+                }
+
+                // Proto Components must be edited via recreation unless we want to edit the protos themselves
+                // Rebuild once to clear licenses
+                Component matchedComp = Component.newBuilder(workingMap.get(currentKeyId))
+                        .clearLicenses()
+                        .build();
+
+                // Rebuild in a loop to add licenses. Method is deceiving name wise as
+                // the actual proto implementation only has one License per LicenseChoice.
+                for(LicenseChoice choice : choiceList){
+                    matchedComp = Component.newBuilder(matchedComp)
+                        .addLicenses(choice)
+                        .build();
+                }
+
+                finalComps.add(matchedComp);
+
+            } else {
+                notFound.add(workingMap.get(currentKeyId));
+            }
+        }
+    }
+
+    private void extractLicensesRecords(String responseBody, HashMap<String, Component> workingMap, ArrayList<Component> finalComps){
         Gson gson = new Gson();
         Response response = gson.fromJson(responseBody, Response.class);
         HashMap<String, Component> noMatchMap = new HashMap();
@@ -277,6 +319,7 @@ final class EfossVulnAnalyzer implements VulnAnalyzer {
 
     final class FossComponentRecords {
         String id;
+        String purl;
         List<License> licenses;
         UseCaseRisk useCaseRisk;
     }
