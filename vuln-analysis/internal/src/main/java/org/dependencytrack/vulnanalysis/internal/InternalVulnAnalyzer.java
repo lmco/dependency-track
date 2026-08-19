@@ -32,6 +32,7 @@ import org.cyclonedx.proto.v1_7.Source;
 import org.cyclonedx.proto.v1_7.Vulnerability;
 import org.cyclonedx.proto.v1_7.VulnerabilityAffects;
 import org.dependencytrack.support.distrometadata.OsDistribution;
+import org.dependencytrack.support.distrometadata.RedHatDistribution;
 import org.dependencytrack.support.jdbi.exception.TransientSqlErrors;
 import org.dependencytrack.vulnanalysis.api.RetryableVulnAnalysisException;
 import org.dependencytrack.vulnanalysis.api.VulnAnalyzer;
@@ -143,7 +144,7 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
         for (final Map.Entry<Long, Set<Long>> entry : findingsByVuln.entrySet()) {
             final Long vulnDbId = entry.getKey();
             final Set<Long> affectedComponentIds = entry.getValue();
-            final VulnMetadata metadata = vulnMetadata.get(vulnDbId);
+            final VulnMetadata metadata = requireNonNull(vulnMetadata.get(vulnDbId));
 
             final var vulnBuilder = Vulnerability.newBuilder()
                     .setId(metadata.vulnId())

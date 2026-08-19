@@ -70,7 +70,6 @@ public class Repository implements Serializable {
 
     @Persistent
     @Column(name = "AUTHENTICATIONREQUIRED", allowsNull = "false", defaultValue = "false")
-    @NotNull
     private boolean authenticationRequired;
 
     @Persistent
