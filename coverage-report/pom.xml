@@ -4,7 +4,7 @@
     <parent>
         <groupId>org.dependencytrack</groupId>
         <artifactId>dependency-track-parent</artifactId>
-        <version>5.1.0-SNAPSHOT</version>
+        <version>5.0.3</version>
     </parent>
 
     <artifactId>coverage-report</artifactId>
@@ -178,6 +178,13 @@
         <dependency>
             <groupId>org.dependencytrack</groupId>
             <artifactId>file-storage-provider-s3</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.dependencytrack</groupId>
+            <artifactId>net-support</artifactId>
             <version>${project.version}</version>
             <scope>provided</scope>
         </dependency>

@@ -367,7 +367,7 @@ public class NotificationPublisherResource extends AbstractApiResource {
             @Parameter(description = "The UUID of the rule to test", schema = @Schema(type = "string", format = "uuid"), required = true)
             @PathParam("uuid") @ValidUuid String ruleUuid) {
         try (final var qm = new QueryManager(getAlpineRequest())) {
-            final var rule = qm.getObjectByUuid(NotificationRule.class, ruleUuid);
+            final NotificationRule rule = qm.getObjectByUuid(NotificationRule.class, ruleUuid);
             if (rule == null) {
                 return Response.status(Response.Status.NOT_FOUND).build();
             }

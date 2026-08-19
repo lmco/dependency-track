@@ -228,10 +228,6 @@ For repeatable migrations, edit the relevant `R__*.sql` file directly, no new fi
 > Flyway rejects checksum mismatches on existing deployments.
 > Add a new migration instead.
 
-> [!NOTE]
-> Migrations run with `outOfOrder=true` so they can be backported to patch branches
-> without blocking the next minor upgrade. See [`RELEASING.md`](./RELEASING.md#4-flyway-migrations).
-
 ### Linting Migrations
 
 New and modified migrations are linted with [squawk](https://squawkhq.com) to catch operationally
