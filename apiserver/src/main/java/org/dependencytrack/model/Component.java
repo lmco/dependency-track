@@ -334,31 +334,6 @@ public class Component implements Serializable {
     @Pattern(regexp = RegexSequence.Definition.PRINTABLE_CHARS, message = "The copyright may only contain printable characters")
     private String copyright;
 
-    @Persistent
-    @Column(name = "LICENSE", jdbcType = "VARCHAR")
-    @Size(max = 255)
-    @JsonDeserialize(using = TrimmedStringDeserializer.class)
-    @Pattern(regexp = RegexSequence.Definition.PRINTABLE_CHARS, message = "The license may only contain printable characters")
-    private String license;
-
-    @Persistent
-    @Column(name = "LICENSE_EXPRESSION", jdbcType = "CLOB", allowsNull = "true")
-    @Pattern(regexp = RegexSequence.Definition.PRINTABLE_CHARS, message = "The license expression may only contain printable characters")
-    @JsonDeserialize(using = TrimmedStringDeserializer.class)
-    @ValidSpdxExpression
-    private String licenseExpression;
-
-    @Persistent
-    @Column(name = "LICENSE_URL", jdbcType = "VARCHAR")
-    @Size(max = 255)
-    @JsonDeserialize(using = TrimmedStringDeserializer.class)
-    @Pattern(regexp = RegexSequence.Definition.URL, message = "The license URL must be a valid URL")
-    private String licenseUrl;
-
-    @Persistent(defaultFetchGroup = "true", cacheable = "false")
-    @Column(name = "LICENSE_ID")
-    private License resolvedLicense;
-
     @Persistent(defaultFetchGroup = "true")
     @Column(name = "DIRECT_DEPENDENCIES", jdbcType = "CLOB")
     @Extensions(value = {
