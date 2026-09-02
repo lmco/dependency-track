@@ -4,7 +4,7 @@ CREATE TABLE public."COMPONENTLICENSES" (
     "LICENSE" character varying(255),
     "LICENSE_EXPRESSION" text,
     "LICENSE_URL" character varying(255),
-    "ORDINALITY" bigint NOT NULL,
+    "ORDINALITY" bigint NOT NULL CHECK ("ORDINALITY" > 0),
     "CONCLUDED" boolean DEFAULT false NOT NULL
 );
 

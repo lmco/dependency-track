@@ -236,9 +236,6 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                  , "C"."GROUP"
                  , "C"."INTERNAL"
                  , "C"."LAST_RISKSCORE"
-                 , "C"."LICENSE" AS "componentLicenseName"
-                 , "C"."LICENSE_EXPRESSION" AS "licenseExpression"
-                 , "C"."LICENSE_URL" AS "licenseUrl"
                  , "C"."TEXT"
                  , "C"."SCOPE"
                  , "C"."MD5"
@@ -252,6 +249,9 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                  , "C"."SWIDTAGID"
                  , "C"."UUID"
                  , "C"."VERSION"
+                 , "CL"."LICENSE" AS "componentLicenseName"
+                 , "CL"."LICENSE_EXPRESSION" AS "licenseExpression"
+                 , "CL"."LICENSE_URL" AS "licenseUrl"
                  , "L"."ISCUSTOMLICENSE"
                  , "L"."FSFLIBRE" AS "isFsfLibre"
                  , "L"."LICENSEID"
@@ -265,8 +265,17 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                  , (EXTRACT(EPOCH FROM "PAM"."PUBLISHED_AT") * 1000000)::bigint AS "artifactPublishedAtMicros"
             </#if>
               FROM "COMPONENT" "C"
-              LEFT JOIN "LICENSE" "L"
-                ON "C"."LICENSE_ID" = "L"."ID"
+              LEFT JOIN LATERAL (
+                SELECT *
+                FROM "COMPONENTLICENSE" AS "CL"
+                WHERE "CL"."COMPONENTID" = "C"."ID"
+                ORDER BY
+                  "CL"."ORDINALITY" ASC,
+                  "CL"."ID" ASC
+                LIMIT 1
+              ) AS "CL" ON TRUE
+              LEFT JOIN "LICENSE" AS "L"
+                ON "L"."ID" = "CL"."LICENSE_ID"
             <#if sortByColumn?has_content && sortByColumn == "PUBLISHED_AT">
               LEFT JOIN "PACKAGE_ARTIFACT_METADATA" "PAM"
                 ON "PAM"."PURL" = "C"."PURL"
@@ -513,9 +522,6 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                         "C"."GROUP",
                         "C"."INTERNAL",
                         "C"."LAST_RISKSCORE",
-                        "C"."LICENSE" AS "componentLicenseName",
-                        "C"."LICENSE_EXPRESSION" AS "licenseExpression",
-                        "C"."LICENSE_URL" AS "licenseUrl",
                         "C"."TEXT",
                         "C"."SCOPE",
                         "C"."MD5",
@@ -529,6 +535,9 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                         "C"."SWIDTAGID",
                         "C"."UUID",
                         "C"."VERSION",
+                        "CL"."LICENSE" AS "componentLicenseName",
+                        "CL"."LICENSE_EXPRESSION" AS "licenseExpression",
+                        "CL"."LICENSE_URL" AS "licenseUrl",
                         "L"."LICENSEID",
                         "L"."UUID" AS "licenseUuid",
                         "L"."NAME" AS "licenseName",
@@ -537,7 +546,17 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                         "PROJECT"."VERSION" AS "projectVersion"
                 FROM "COMPONENT" "C"
                 INNER JOIN "PROJECT" ON "C"."PROJECT_ID" = "PROJECT"."ID"
-                LEFT OUTER JOIN "LICENSE" "L" ON "C"."LICENSE_ID" = "L"."ID"
+                LEFT JOIN LATERAL (
+                  SELECT *
+                  FROM "COMPONENTLICENSE" AS "CL"
+                  WHERE "CL"."COMPONENTID" = "C"."ID"
+                  ORDER BY
+                    "CL"."ORDINALITY" ASC,
+                    "CL"."ID" ASC
+                    LIMIT 1
+                  ) AS "CL" ON TRUE
+                LEFT JOIN "LICENSE" AS "L"
+                  ON "L"."ID" = "CL"."LICENSE_ID"
                 WHERE ${apiProjectAclCondition}
                 AND ${whereConditions?join(" AND ")}
                 <#assign castedLastSortValue>

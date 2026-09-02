@@ -51,8 +51,6 @@ public final class CelPolicyFieldMappingRegistry {
             new FieldMapping("blake2b_384", "c.\"BLAKE2B_384\""),
             new FieldMapping("blake2b_512", "c.\"BLAKE2B_512\""),
             new FieldMapping("blake3", "c.\"BLAKE3\""),
-            new FieldMapping("license_name", "c.\"LICENSE\""),
-            new FieldMapping("license_expression", "c.\"LICENSE_EXPRESSION\""),
             new FieldMapping("published_at", "pam.\"PUBLISHED_AT\""),
             new FieldMapping("latest_version", "pm.\"LATEST_VERSION\""),
             new FieldMapping("latest_version_published_at", "pm.\"LATEST_VERSION_PUBLISHED_AT\""),
@@ -93,6 +91,10 @@ public final class CelPolicyFieldMappingRegistry {
             new FieldMapping("aliases", "CAST(JSONB_VULN_ALIASES(v.\"SOURCE\", v.\"VULNID\") AS TEXT)"),
             new FieldMapping("epss_score", "ep.\"SCORE\""),
             new FieldMapping("epss_percentile", "ep.\"PERCENTILE\""));
+
+    static final List<FieldMapping> COMPONENT_LICENSE_FIELDS = List.of(
+            new FieldMapping("license_name", "cl.\"LICENSE\""),
+            new FieldMapping("license_expression", "cl.\"LICENSE_EXPRESSION\""));
 
     static final List<FieldMapping> LICENSE_FIELDS = List.of(
             new FieldMapping("uuid", "l.\"UUID\""),

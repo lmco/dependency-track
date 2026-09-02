@@ -137,9 +137,6 @@ final class ComponentQueryManager extends QueryManager {
                         "A0"."GROUP" AS "group",
                         "A0"."INTERNAL" AS "internal",
                         "A0"."LAST_RISKSCORE" AS "lastInheritedRiskScore",
-                        "A0"."LICENSE" AS "componentLicenseName",
-                        "A0"."LICENSE_EXPRESSION" AS "licenseExpression",
-                        "A0"."LICENSE_URL" AS "licenseUrl",
                         "A0"."TEXT" AS "text",
                         "A0"."MD5" AS "md5",
                         "A0"."SHA1" AS "sha1",
@@ -171,6 +168,9 @@ final class ComponentQueryManager extends QueryManager {
                         "B0"."SWIDTAGID" AS "projectSwidTagId",
                         "B0"."UUID" AS "projectUuid",
                         "B0"."VERSION" AS "projectVersion",
+                        "C0"."LICENSE" AS "componentLicenseName",
+                        "C0"."LICENSE_EXPRESSION" AS "licenseExpression",
+                        "C0"."LICENSE_URL" AS "licenseUrl",
                         "D0"."ISCUSTOMLICENSE" AS "isCustomLicense",
                         "D0"."FSFLIBRE" AS "isFsfLibre",
                         "D0"."LICENSEID" AS "licenseId",
@@ -181,7 +181,15 @@ final class ComponentQueryManager extends QueryManager {
                         COUNT(*) OVER() AS "totalCount"
                 FROM "COMPONENT" "A0"
                 INNER JOIN "PROJECT" "B0" ON "A0"."PROJECT_ID" = "B0"."ID"
-                LEFT OUTER JOIN "LICENSE" "D0" ON "A0"."LICENSE_ID" = "D0"."ID"
+                LEFT OUTER JOIN LATERAL (
+                    SELECT * FROM "COMPONENTLICENSE"
+                    WHERE "COMPONENTLICENSE"."COMPONENTID" = "A0"."ID"
+                    ORDER BY 
+                        "COMPONENTLICENSE"."ORDINALITY" ASC
+                        "COMPONENTLICENSE"."ID" ASC
+                    LIMIT 1
+                ) AS "C0" ON TRUE
+                LEFT OUTER JOIN "LICENSE" "D0" ON "C0"."LICENSE_ID" = "D0"."ID"
                 WHERE "A0"."PROJECT_ID" = :projectId
                 """;
 
