@@ -75,7 +75,7 @@ import java.util.UUID;
 @FetchGroups({
         @FetchGroup(name = "ALL", members = {
                 @Persistent(name = "project"),
-                @Persistent(name = "resolvedLicense"),
+                @Persistent(name = "resolvedLicenses"),
                 @Persistent(name = "externalReferences"),
                 @Persistent(name = "parent"),
                 @Persistent(name = "children"),
@@ -371,6 +371,29 @@ public class Component implements Serializable {
     @Element(column = "VULNERABILITY_ID", foreignKey = "COMPONENTS_VULNERABILITIES_VULNERABILITY_FK", deleteAction = ForeignKeyAction.CASCADE)
     @Order(extensions = @Extension(vendorName = "datanucleus", key = "list-ordering", value = "id ASC"))
     private List<Vulnerability> vulnerabilities;
+
+    @Persistent(table = "COMPONENTLICENSE", defaultFetchGroup = "true")
+    @Join(column = "COMPONENTID", foreignKey = "COMPONENT_LICENSES_FK1", deleteAction = ForeignKeyAction.CASCADE)
+    @Element(column = "LICENSE")
+    @Order(column = "ORDINALITY")
+    private List<String> licenses;
+
+    @Persistent(table = "COMPONENTLICENSE", defaultFetchGroup = "true")
+    @Join(column = "COMPONENTID", foreignKey = "COMPONENT_LICENSES_FK1", deleteAction = ForeignKeyAction.CASCADE)
+    @Element(column = "LICENSE_EXPRESSION")
+    @Order(column = "ORDINALITY")
+    private List<String> licenseExpressions;
+
+    @Persistent(table = "COMPONENTLICENSE", defaultFetchGroup = "true")
+    @Join(column = "COMPONENTID", foreignKey = "COMPONENT_LICENSES_FK1", deleteAction = ForeignKeyAction.CASCADE)
+    @Element(column = "LICENSE_URL")
+    @Order(column = "ORDINALITY")
+    private List<String> licenseUrls;
+
+    @Persistent(table = "COMPONENTLICENSE", defaultFetchGroup = "true", cacheable = "false")
+    @Join(column = "COMPONENTID", foreignKey = "COMPONENT_LICENSES_FK1", deleteAction = ForeignKeyAction.CASCADE)
+    @Element(column = "LICENSE_ID")
+    private List<License> resolvedLicenses;
 
     @Persistent(defaultFetchGroup = "true")
     @ForeignKey(name = "COMPONENT_PROJECT_FK", updateAction = ForeignKeyAction.NONE, deleteAction = ForeignKeyAction.CASCADE, deferred = "true")
@@ -698,35 +721,74 @@ public class Component implements Serializable {
     }
 
     public String getLicense() {
-        return license;
+        return licenses.get(0);
+    }
+
+    public List<String> getLicenses() {
+        return licenses;
     }
 
     public void setLicense(String license) {
-        this.license = StringUtils.abbreviate(license, 255);
+        this.licenses.set(0, StringUtils.abbreviate(license, 255));
+    }
+
+    public void setLicenses(List<String> licenses) {
+        this.licenses.clear();
+        this.licenses.addAll(licenses);
     }
 
     public String getLicenseExpression() {
-        return licenseExpression;
+        return licenseExpressions.get(0);
+    }
+
+    public List<String> getLicenseExpressions() {
+        return licenseExpressions;
     }
 
     public void setLicenseExpression(String licenseExpression) {
-        this.licenseExpression = licenseExpression;
+        this.licenseExpressions.clear();
+        this.licenseExpressions.add(licenseExpression);
+    }
+
+    public void setLicenseExpressions(List<String> licenseExpressions) {
+        this.licenseExpressions.clear();
+        this.licenseExpressions.addAll(licenseExpressions);
     }
 
     public String getLicenseUrl() {
-        return licenseUrl;
+        return licenseUrls.get(0);
+    }
+
+    public List<String> getLicenseUrls() {
+        return licenseUrls;
     }
 
     public void setLicenseUrl(String licenseUrl) {
-        this.licenseUrl = StringUtils.abbreviate(licenseUrl, 255);
+        this.licenseUrls.clear();
+        this.licenseUrls.add(licenseUrl);
+    }
+
+    public void setLicenseUrls(List<String> licenseUrls) {
+        this.licenseUrls.clear();
+        this.licenseUrls.addAll(licenseUrls);
     }
 
     public License getResolvedLicense() {
-        return resolvedLicense;
+        return resolvedLicenses.get(0);
+    }
+
+    public List<License> getResolvedLicenses() {
+        return resolvedLicenses;
     }
 
     public void setResolvedLicense(License resolvedLicense) {
-        this.resolvedLicense = resolvedLicense;
+        this.resolvedLicenses.clear();
+        this.resolvedLicenses.add(resolvedLicense);
+    }
+
+    public void setResolvedLicenses(List<License> resolvedLicense) {
+        this.resolvedLicenses.clear();
+        this.resolvedLicenses.addAll(resolvedLicenses);
     }
 
     public String getDirectDependencies() {
@@ -889,7 +951,7 @@ public class Component implements Serializable {
 
     @JsonIgnore
     @Schema(hidden = true)
-    public List<org.cyclonedx.model.License> getLicenseCandidates() {
+    public List<org.cyclonedx.model.License> getLicenseCandidates() { //here
         return licenseCandidates;
     }
 
