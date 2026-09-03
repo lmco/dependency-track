@@ -951,7 +951,7 @@ public class Component implements Serializable {
 
     @JsonIgnore
     @Schema(hidden = true)
-    public List<org.cyclonedx.model.License> getLicenseCandidates() { //here
+    public List<org.cyclonedx.model.License> getLicenseCandidates() {
         return licenseCandidates;
     }
 
