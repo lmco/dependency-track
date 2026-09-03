@@ -372,25 +372,25 @@ public class Component implements Serializable {
     @Order(extensions = @Extension(vendorName = "datanucleus", key = "list-ordering", value = "id ASC"))
     private List<Vulnerability> vulnerabilities;
 
-    @Persistent(table = "COMPONENTLICENSE", defaultFetchGroup = "true")
+    @Persistent(table = "COMPONENTLICENSES", defaultFetchGroup = "true")
     @Join(column = "COMPONENTID", foreignKey = "COMPONENT_LICENSES_FK1", deleteAction = ForeignKeyAction.CASCADE)
     @Element(column = "LICENSE")
     @Order(column = "ORDINALITY")
     private List<String> licenses;
 
-    @Persistent(table = "COMPONENTLICENSE", defaultFetchGroup = "true")
+    @Persistent(table = "COMPONENTLICENSES", defaultFetchGroup = "true")
     @Join(column = "COMPONENTID", foreignKey = "COMPONENT_LICENSES_FK1", deleteAction = ForeignKeyAction.CASCADE)
     @Element(column = "LICENSE_EXPRESSION")
     @Order(column = "ORDINALITY")
     private List<String> licenseExpressions;
 
-    @Persistent(table = "COMPONENTLICENSE", defaultFetchGroup = "true")
+    @Persistent(table = "COMPONENTLICENSES", defaultFetchGroup = "true")
     @Join(column = "COMPONENTID", foreignKey = "COMPONENT_LICENSES_FK1", deleteAction = ForeignKeyAction.CASCADE)
     @Element(column = "LICENSE_URL")
     @Order(column = "ORDINALITY")
     private List<String> licenseUrls;
 
-    @Persistent(table = "COMPONENTLICENSE", defaultFetchGroup = "true", cacheable = "false")
+    @Persistent(table = "COMPONENTLICENSES", defaultFetchGroup = "true", cacheable = "false")
     @Join(column = "COMPONENTID", foreignKey = "COMPONENT_LICENSES_FK1", deleteAction = ForeignKeyAction.CASCADE)
     @Element(column = "LICENSE_ID")
     private List<License> resolvedLicenses;
