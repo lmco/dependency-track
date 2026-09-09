@@ -722,7 +722,7 @@ public class Component implements Serializable {
     }
 
     public String getLicense() {
-        return licenses.get(0);
+        return (licenses == null || licenses.isEmpty()) ? null : licenses.get(0);
     }
 
     public List<String> getLicenses() {
@@ -739,7 +739,7 @@ public class Component implements Serializable {
     }
 
     public String getLicenseExpression() {
-        return licenseExpressions.get(0);
+        return (licenseExpressions == null || licenseExpressions.isEmpty()) ? null : licenseExpressions.get(0);
     }
 
     public List<String> getLicenseExpressions() {
@@ -757,7 +757,7 @@ public class Component implements Serializable {
     }
 
     public String getLicenseUrl() {
-        return licenseUrls.get(0);
+        return (licenseUrls == null || licenseUrls.isEmpty()) ? null : licenseUrls.get(0);
     }
 
     public List<String> getLicenseUrls() {
@@ -775,7 +775,7 @@ public class Component implements Serializable {
     }
 
     public License getResolvedLicense() {
-        return resolvedLicenses.get(0);
+        return (resolvedLicenses == null || resolvedLicenses.isEmpty()) ? null : resolvedLicenses.get(0);
     }
 
     public List<License> getResolvedLicenses() {
