@@ -373,26 +373,27 @@ public class Component implements Serializable {
     private List<Vulnerability> vulnerabilities;
 
     @Persistent(table = "COMPONENTLICENSES")
-    @Join(column = "COMPONENTID", foreignKey = "COMPONENT_LICENSES_FK1", deleteAction = ForeignKeyAction.CASCADE)
+    @Join(column = "COMPONENTID", foreignKey = "COMPONENTLICENSES_FK1", deleteAction = ForeignKeyAction.CASCADE)
     @Element(column = "LICENSE")
     @Order(column = "ORDINALITY")
     private List<String> licenses;
 
     @Persistent(table = "COMPONENTLICENSES")
-    @Join(column = "COMPONENTID", foreignKey = "COMPONENT_LICENSES_FK1", deleteAction = ForeignKeyAction.CASCADE)
+    @Join(column = "COMPONENTID", foreignKey = "COMPONENTLICENSES_FK1", deleteAction = ForeignKeyAction.CASCADE)
     @Element(column = "LICENSE_EXPRESSION")
     @Order(column = "ORDINALITY")
     private List<String> licenseExpressions;
 
     @Persistent(table = "COMPONENTLICENSES")
-    @Join(column = "COMPONENTID", foreignKey = "COMPONENT_LICENSES_FK1", deleteAction = ForeignKeyAction.CASCADE)
+    @Join(column = "COMPONENTID", foreignKey = "COMPONENTLICENSES_FK1", deleteAction = ForeignKeyAction.CASCADE)
     @Element(column = "LICENSE_URL")
     @Order(column = "ORDINALITY")
     private List<String> licenseUrls;
 
     @Persistent(table = "COMPONENTLICENSES", cacheable = "false")
-    @Join(column = "COMPONENTID", foreignKey = "COMPONENT_LICENSES_FK1", deleteAction = ForeignKeyAction.CASCADE)
+    @Join(column = "COMPONENTID", foreignKey = "COMPONENTLICENSES_FK1", deleteAction = ForeignKeyAction.CASCADE)
     @Element(column = "LICENSE_ID")
+    @Order(column = "ORDINALITY")
     private List<License> resolvedLicenses;
 
     @Persistent(defaultFetchGroup = "true")
