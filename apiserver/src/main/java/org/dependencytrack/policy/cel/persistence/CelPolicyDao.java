@@ -111,7 +111,7 @@ public final class CelPolicyDao {
                           FROM "COMPONENT" AS c
                           LEFT JOIN LATERAL (
                             SELECT *
-                            FROM "COMPONENTLICENSE" AS "cl"
+                            FROM "COMPONENTLICENSES" AS "cl"
                             WHERE "cl"."COMPONENTID" = "c"."ID"
                             ORDER BY
                               "cl"."ORDINALITY" ASC,
@@ -242,7 +242,7 @@ public final class CelPolicyDao {
                               FROM "COMPONENT" AS c
                               LEFT JOIN LATERAL (
                                 SELECT *
-                                FROM "COMPONENTLICENSE" AS "cl"
+                                FROM "COMPONENTLICENSES" AS "cl"
                                 WHERE "cl"."COMPONENTID" = "c"."ID"
                                 ORDER BY
                                   "cl"."ORDINALITY" ASC,
@@ -299,7 +299,7 @@ public final class CelPolicyDao {
                           FROM "COMPONENT" AS c
                             LEFT JOIN LATERAL (
                               SELECT *
-                              FROM "COMPONENTLICENSE" AS "cl"
+                              FROM "COMPONENTLICENSES" AS "cl"
                               WHERE "cl"."COMPONENTID" = "c"."ID"
                               ORDER BY
                                 "cl"."ORDINALITY" ASC,

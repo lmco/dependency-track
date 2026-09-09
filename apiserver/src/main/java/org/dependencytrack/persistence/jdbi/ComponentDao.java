@@ -267,7 +267,7 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
               FROM "COMPONENT" "C"
               LEFT JOIN LATERAL (
                 SELECT *
-                FROM "COMPONENTLICENSE" AS "CL"
+                FROM "COMPONENTLICENSES" AS "CL"
                 WHERE "CL"."COMPONENTID" = "C"."ID"
                 ORDER BY
                   "CL"."ORDINALITY" ASC,
@@ -548,7 +548,7 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                 INNER JOIN "PROJECT" ON "C"."PROJECT_ID" = "PROJECT"."ID"
                 LEFT JOIN LATERAL (
                   SELECT *
-                  FROM "COMPONENTLICENSE" AS "CL"
+                  FROM "COMPONENTLICENSES" AS "CL"
                   WHERE "CL"."COMPONENTID" = "C"."ID"
                   ORDER BY
                     "CL"."ORDINALITY" ASC,

@@ -182,11 +182,11 @@ final class ComponentQueryManager extends QueryManager {
                 FROM "COMPONENT" "A0"
                 INNER JOIN "PROJECT" "B0" ON "A0"."PROJECT_ID" = "B0"."ID"
                 LEFT OUTER JOIN LATERAL (
-                    SELECT * FROM "COMPONENTLICENSE"
-                    WHERE "COMPONENTLICENSE"."COMPONENTID" = "A0"."ID"
+                    SELECT * FROM "COMPONENTLICENSES"
+                    WHERE "COMPONENTLICENSES"."COMPONENTID" = "A0"."ID"
                     ORDER BY 
-                        "COMPONENTLICENSE"."ORDINALITY" ASC
-                        "COMPONENTLICENSE"."ID" ASC
+                        "COMPONENTLICENSES"."ORDINALITY" ASC
+                        "COMPONENTLICENSES"."ID" ASC
                     LIMIT 1
                 ) AS "C0" ON TRUE
                 LEFT OUTER JOIN "LICENSE" "D0" ON "C0"."LICENSE_ID" = "D0"."ID"
