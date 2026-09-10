@@ -271,6 +271,7 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                 WHERE "CL"."COMPONENTID" = "C"."ID"
                 ORDER BY
                   "CL"."ORDINALITY" ASC,
+                  "CL"."LICENSE_ID" ASC
                 LIMIT 1
               ) AS "CL" ON TRUE
               LEFT JOIN "LICENSE" AS "L"
@@ -551,6 +552,7 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                   WHERE "CL"."COMPONENTID" = "C"."ID"
                   ORDER BY
                     "CL"."ORDINALITY" ASC,
+                    "CL"."LICENSE_ID" ASC
                     LIMIT 1
                   ) AS "CL" ON TRUE
                 LEFT JOIN "LICENSE" AS "L"
@@ -632,6 +634,9 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                 maybeSet(rs, "isFsfLibre", ResultSet::getBoolean, license::setFsfLibre);
                 maybeSet(rs, "isOsiApproved", ResultSet::getBoolean, license::setOsiApproved);
                 component.setResolvedLicense(license);
+                maybeSet(rs, "componentLicenseName", ResultSet::getString, component::setLicense);
+                maybeSet(rs, "licenseExpression", ResultSet::getString, component::setLicenseExpression);
+                maybeSet(rs, "licenseUrl", ResultSet::getString, component::setLicenseUrl);
             }
             if (hasColumn(rs, "occurrenceCount")) {
                 maybeSet(rs, "occurrenceCount", ResultSet::getLong, component::setOccurrenceCount);

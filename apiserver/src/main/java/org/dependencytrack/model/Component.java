@@ -372,30 +372,6 @@ public class Component implements Serializable {
     @Order(extensions = @Extension(vendorName = "datanucleus", key = "list-ordering", value = "id ASC"))
     private List<Vulnerability> vulnerabilities;
 
-    @Persistent(table = "COMPONENTLICENSES")
-    @Join(column = "COMPONENTID", foreignKey = "COMPONENTLICENSES_FK1", deleteAction = ForeignKeyAction.CASCADE)
-    @Element(column = "LICENSE")
-    @Order(column = "ORDINALITY")
-    private List<String> licenses;
-
-    @Persistent(table = "COMPONENTLICENSES")
-    @Join(column = "COMPONENTID", foreignKey = "COMPONENTLICENSES_FK1", deleteAction = ForeignKeyAction.CASCADE)
-    @Element(column = "LICENSE_EXPRESSION")
-    @Order(column = "ORDINALITY")
-    private List<String> licenseExpressions;
-
-    @Persistent(table = "COMPONENTLICENSES")
-    @Join(column = "COMPONENTID", foreignKey = "COMPONENTLICENSES_FK1", deleteAction = ForeignKeyAction.CASCADE)
-    @Element(column = "LICENSE_URL")
-    @Order(column = "ORDINALITY")
-    private List<String> licenseUrls;
-
-    @Persistent(table = "COMPONENTLICENSES", cacheable = "false")
-    @Join(column = "COMPONENTID", foreignKey = "COMPONENTLICENSES_FK1", deleteAction = ForeignKeyAction.CASCADE)
-    @Element(column = "LICENSE_ID")
-    @Order(column = "ORDINALITY")
-    private List<License> resolvedLicenses;
-
     @Persistent(defaultFetchGroup = "true")
     @ForeignKey(name = "COMPONENT_PROJECT_FK", updateAction = ForeignKeyAction.NONE, deleteAction = ForeignKeyAction.CASCADE, deferred = "true")
     @Index(name = "COMPONENT_PROJECT_ID_IDX")
@@ -434,6 +410,11 @@ public class Component implements Serializable {
     private transient Set<String> dependencyGraph;
     private transient boolean expandDependencyGraph;
     private transient String author;
+
+    private transient String license;
+    private transient String licenseExpression;
+    private transient String licenseUrl;
+    private transient License resolvedLicense;
 
     // TODO: Move this to another class, similar to ConciseProjectListItem.
     //  This is only relevant when listing components.
@@ -722,74 +703,35 @@ public class Component implements Serializable {
     }
 
     public String getLicense() {
-        return (licenses == null || licenses.isEmpty()) ? null : licenses.get(0);
-    }
-
-    public List<String> getLicenses() {
-        return licenses;
+        return license;
     }
 
     public void setLicense(String license) {
-        this.licenses.set(0, StringUtils.abbreviate(license, 255));
-    }
-
-    public void setLicenses(List<String> licenses) {
-        this.licenses.clear();
-        this.licenses.addAll(licenses);
+        this.license = StringUtils.abbreviate(license, 255);
     }
 
     public String getLicenseExpression() {
-        return (licenseExpressions == null || licenseExpressions.isEmpty()) ? null : licenseExpressions.get(0);
-    }
-
-    public List<String> getLicenseExpressions() {
-        return licenseExpressions;
+        return licenseExpression;
     }
 
     public void setLicenseExpression(String licenseExpression) {
-        this.licenseExpressions.clear();
-        this.licenseExpressions.add(licenseExpression);
-    }
-
-    public void setLicenseExpressions(List<String> licenseExpressions) {
-        this.licenseExpressions.clear();
-        this.licenseExpressions.addAll(licenseExpressions);
+        this.licenseExpression = licenseExpression;
     }
 
     public String getLicenseUrl() {
-        return (licenseUrls == null || licenseUrls.isEmpty()) ? null : licenseUrls.get(0);
-    }
-
-    public List<String> getLicenseUrls() {
-        return licenseUrls;
+        return licenseUrl;
     }
 
     public void setLicenseUrl(String licenseUrl) {
-        this.licenseUrls.clear();
-        this.licenseUrls.add(licenseUrl);
-    }
-
-    public void setLicenseUrls(List<String> licenseUrls) {
-        this.licenseUrls.clear();
-        this.licenseUrls.addAll(licenseUrls);
+        this.licenseUrl = StringUtils.abbreviate(licenseUrl, 255);
     }
 
     public License getResolvedLicense() {
-        return (resolvedLicenses == null || resolvedLicenses.isEmpty()) ? null : resolvedLicenses.get(0);
-    }
-
-    public List<License> getResolvedLicenses() {
-        return resolvedLicenses;
+        return resolvedLicense;
     }
 
     public void setResolvedLicense(License resolvedLicense) {
-        this.resolvedLicenses.clear();
-        this.resolvedLicenses.add(resolvedLicense);
-    }
-
-    public void setResolvedLicenses(List<License> resolvedLicense) {
-        this.resolvedLicenses.clear();
-        this.resolvedLicenses.addAll(resolvedLicenses);
+        this.resolvedLicense = resolvedLicense;
     }
 
     public String getDirectDependencies() {
