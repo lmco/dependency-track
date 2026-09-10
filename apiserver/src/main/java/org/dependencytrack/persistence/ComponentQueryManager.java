@@ -185,7 +185,7 @@ final class ComponentQueryManager extends QueryManager {
                     SELECT * FROM "COMPONENTLICENSES"
                     WHERE "COMPONENTLICENSES"."COMPONENTID" = "A0"."ID"
                     ORDER BY 
-                        "COMPONENTLICENSES"."ORDINALITY" ASC
+                        "COMPONENTLICENSES"."ORDINALITY" ASC,
                         "COMPONENTLICENSES"."LICENSE_ID" ASC
                     LIMIT 1
                 ) AS "C0" ON TRUE
