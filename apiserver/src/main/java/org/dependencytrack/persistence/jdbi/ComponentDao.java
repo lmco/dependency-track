@@ -271,7 +271,7 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                 WHERE "CL"."COMPONENTID" = "C"."ID"
                 ORDER BY
                   "CL"."ORDINALITY" ASC,
-                  "CL"."LICENSE_ID" ASC
+                  "CL"."ID" ASC
                 LIMIT 1
               ) AS "CL" ON TRUE
               LEFT JOIN "LICENSE" AS "L"
@@ -552,7 +552,7 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                   WHERE "CL"."COMPONENTID" = "C"."ID"
                   ORDER BY
                     "CL"."ORDINALITY" ASC,
-                    "CL"."LICENSE_ID" ASC
+                    "CL"."ID" ASC
                     LIMIT 1
                   ) AS "CL" ON TRUE
                 LEFT JOIN "LICENSE" AS "L"

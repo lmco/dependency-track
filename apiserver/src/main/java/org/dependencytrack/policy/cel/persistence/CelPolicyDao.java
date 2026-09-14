@@ -115,7 +115,7 @@ public final class CelPolicyDao {
                             WHERE "cl"."COMPONENTID" = "c"."ID"
                             ORDER BY
                               "cl"."ORDINALITY" ASC,
-                              "cl"."LICENSE_ID" ASC
+                              "cl"."ID" ASC
                             LIMIT 1
                           ) AS "cl" ON TRUE
                         <#if shouldJoinPam!false>
@@ -246,7 +246,7 @@ public final class CelPolicyDao {
                                 WHERE "cl"."COMPONENTID" = "c"."ID"
                                 ORDER BY
                                   "cl"."ORDINALITY" ASC,
-                                  "cl"."LICENSE_ID" ASC
+                                  "cl"."ID" ASC
                                 LIMIT 1
                               ) AS "cl" ON TRUE
                               INNER JOIN "LICENSE" AS l
@@ -303,7 +303,7 @@ public final class CelPolicyDao {
                               WHERE "cl"."COMPONENTID" = "c"."ID"
                               ORDER BY
                                 "cl"."ORDINALITY" ASC,
-                                "cl"."LICENSE_ID" ASC
+                                "cl"."ID" ASC
                               LIMIT 1
                             ) AS "cl" ON TRUE
                             INNER JOIN "LICENSE" AS l
