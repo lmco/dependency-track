@@ -30,7 +30,7 @@ import org.junit.jupiter.api.Test;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.dependencytrack.persistence.jdbi.JdbiFactory.withJdbiHandle;
+import static org.dependencytrack.persistence.jdbi.JdbiFactory.useJdbiHandle;
 
 public class LicenseConditionTest extends PersistenceCapableTest {
 
@@ -54,7 +54,7 @@ public class LicenseConditionTest extends PersistenceCapableTest {
         component.setProject(project);
         qm.persist(component);
 
-        withJdbiHandle(handle -> handle.createUpdate("""
+        useJdbiHandle(handle -> handle.createUpdate("""
             INSERT INTO "COMPONENTLICENSES" (
                 "COMPONENTID",
                 "LICENSE_ID",
@@ -138,7 +138,7 @@ public class LicenseConditionTest extends PersistenceCapableTest {
         component.setProject(project);
         qm.persist(component);
 
-        withJdbiHandle(handle -> handle.createUpdate("""
+        useJdbiHandle(handle -> handle.createUpdate("""
             INSERT INTO "COMPONENTLICENSES" (
                 "COMPONENTID",
                 "LICENSE_EXPRESSION",
@@ -176,7 +176,7 @@ public class LicenseConditionTest extends PersistenceCapableTest {
         component.setProject(project);
         qm.persist(component);
 
-        withJdbiHandle(handle -> handle.createUpdate("""
+        useJdbiHandle(handle -> handle.createUpdate("""
             INSERT INTO "COMPONENTLICENSES" (
                 "COMPONENTID",
                 "LICENSE",
@@ -214,7 +214,7 @@ public class LicenseConditionTest extends PersistenceCapableTest {
         component.setProject(project);
         qm.persist(component);
 
-        withJdbiHandle(handle -> handle.createUpdate("""
+        useJdbiHandle(handle -> handle.createUpdate("""
             INSERT INTO "COMPONENTLICENSES" (
                 "COMPONENTID",
                 "LICENSE_EXPRESSION",
@@ -252,7 +252,7 @@ public class LicenseConditionTest extends PersistenceCapableTest {
         component.setProject(project);
         qm.persist(component);
 
-        withJdbiHandle(handle -> handle.createUpdate("""
+        useJdbiHandle(handle -> handle.createUpdate("""
             INSERT INTO "COMPONENTLICENSES" (
                 "COMPONENTID",
                 "LICENSE_EXPRESSION",
@@ -284,7 +284,7 @@ public class LicenseConditionTest extends PersistenceCapableTest {
         component.setProject(project);
         qm.persist(component);
 
-        withJdbiHandle(handle -> handle.createUpdate("""
+        useJdbiHandle(handle -> handle.createUpdate("""
             INSERT INTO "COMPONENTLICENSES" (
                 "COMPONENTID",
                 "LICENSE_EXPRESSION",
@@ -321,7 +321,7 @@ public class LicenseConditionTest extends PersistenceCapableTest {
         component.setProject(project);
         qm.persist(component);
 
-        withJdbiHandle(handle -> handle.createUpdate("""
+        useJdbiHandle(handle -> handle.createUpdate("""
             INSERT INTO "COMPONENTLICENSES" (
                 "COMPONENTID",
                 "LICENSE_ID",
@@ -370,7 +370,7 @@ public class LicenseConditionTest extends PersistenceCapableTest {
         componentWithLicense.setResolvedLicense(license);
         qm.persist(componentWithLicense);
 
-        withJdbiHandle(handle -> handle.createUpdate("""
+        useJdbiHandle(handle -> handle.createUpdate("""
             INSERT INTO "COMPONENTLICENSES" (
                 "COMPONENTID",
                 "LICENSE_ID",

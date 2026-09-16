@@ -192,6 +192,25 @@ class CelPolicyEngineTest extends PersistenceCapableTest {
         component.setResolvedLicense(license);
         qm.persist(component);
 
+        useJdbiHandle(handle -> handle.createUpdate("""
+            INSERT INTO "COMPONENTLICENSES" (
+                "COMPONENTID",
+                "LICENSE_ID",
+                "LICENSE",
+                "LICENSE_EXPRESSION",
+                "LICENSE_URL",
+                "ORDINALITY",
+                "CONCLUDED"
+            )
+            VALUES (:componentId, :licenseId, :license, :licenseExpression, :licenseUrl, 1, false)
+            """)
+        .bind("componentId", component.getId())
+        .bind("licenseId", license.getId())
+        .bind("license", "componentLicenseName")
+        .bind("licenseExpression", component.getLicenseExpression())
+        .bind("licenseUrl", "licenseUrl")
+        .execute());
+
         qm.createComponentProperty(
                 component,
                 "componentPropertyGroup",
@@ -2398,6 +2417,19 @@ class CelPolicyEngineTest extends PersistenceCapableTest {
         component.setResolvedLicense(license);
         qm.persist(component);
 
+        useJdbiHandle(handle -> handle.createUpdate("""
+            INSERT INTO "COMPONENTLICENSES" (
+                "COMPONENTID",
+                "LICENSE_ID",
+                "ORDINALITY",
+                "CONCLUDED"
+            )
+            VALUES (:componentId, :licenseId, 1, false)
+            """)
+        .bind("componentId", component.getId())
+        .bind("licenseId", license.getId())
+        .execute());
+
         final var policy = qm.createPolicy("policy", Policy.Operator.ANY, Policy.ViolationState.FAIL);
         qm.createPolicyCondition(policy, PolicyCondition.Subject.EXPRESSION, PolicyCondition.Operator.MATCHES, """
                 component.resolved_license.groups.size() == 2
@@ -2437,6 +2469,19 @@ class CelPolicyEngineTest extends PersistenceCapableTest {
         component.setLicenseExpression(licenseExpression);
         qm.persist(component);
 
+        useJdbiHandle(handle -> handle.createUpdate("""
+            INSERT INTO "COMPONENTLICENSES" (
+                "COMPONENTID",
+                "LICENSE_EXPRESSION",
+                "ORDINALITY",
+                "CONCLUDED"
+            )
+            VALUES (:componentId, :licenseExpression, 1, false)
+            """)
+        .bind("componentId", component.getId())
+        .bind("licenseExpression", component.getLicenseExpression())
+        .execute());
+
         new CelPolicyEngine().evaluateProject(project.getUuid());
         if (expectViolation) {
             assertThat(qm.getAllPolicyViolations(component)).hasSize(1);
@@ -2468,6 +2513,19 @@ class CelPolicyEngineTest extends PersistenceCapableTest {
         component.setName("acme-lib");
         component.setResolvedLicense(license);
         qm.persist(component);
+
+        useJdbiHandle(handle -> handle.createUpdate("""
+            INSERT INTO "COMPONENTLICENSES" (
+                "COMPONENTID",
+                "LICENSE_ID",
+                "ORDINALITY",
+                "CONCLUDED"
+            )
+            VALUES (:componentId, :licenseId, 1, false)
+            """)
+        .bind("componentId", component.getId())
+        .bind("licenseId", license.getId())
+        .execute());
 
         new CelPolicyEngine().evaluateProject(project.getUuid());
         assertThat(qm.getAllPolicyViolations(component)).hasSize(1);
