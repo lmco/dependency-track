@@ -626,6 +626,9 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
             if (rs.getString("LAST_RISKSCORE") != null) {
                 maybeSet(rs, "LAST_RISKSCORE", ResultSet::getDouble, component::setLastInheritedRiskScore);
             }
+            maybeSet(rs, "componentLicenseName", ResultSet::getString, component::setLicense);
+            maybeSet(rs, "licenseExpression", ResultSet::getString, component::setLicenseExpression);
+            maybeSet(rs, "licenseUrl", ResultSet::getString, component::setLicenseUrl);
             if (hasColumn(rs, "licenseUuid") && rs.getString("licenseUuid") != null) {
                 final var license = new License();
                 license.setUuid(UUID.fromString(rs.getString("licenseUuid")));
@@ -635,9 +638,6 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                 maybeSet(rs, "isFsfLibre", ResultSet::getBoolean, license::setFsfLibre);
                 maybeSet(rs, "isOsiApproved", ResultSet::getBoolean, license::setOsiApproved);
                 component.setResolvedLicense(license);
-                maybeSet(rs, "componentLicenseName", ResultSet::getString, component::setLicense);
-                maybeSet(rs, "licenseExpression", ResultSet::getString, component::setLicenseExpression);
-                maybeSet(rs, "licenseUrl", ResultSet::getString, component::setLicenseUrl);
             }
             if (hasColumn(rs, "occurrenceCount")) {
                 maybeSet(rs, "occurrenceCount", ResultSet::getLong, component::setOccurrenceCount);
