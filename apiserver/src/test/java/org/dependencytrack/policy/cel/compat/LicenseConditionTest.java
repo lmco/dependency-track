@@ -30,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.dependencytrack.persistence.jdbi.JdbiFactory.withJdbiHandle;
 
 public class LicenseConditionTest extends PersistenceCapableTest {
 
@@ -39,6 +40,7 @@ public class LicenseConditionTest extends PersistenceCapableTest {
         license.setName("Apache 2.0");
         license.setUuid(UUID.randomUUID());
         license = qm.persist(license);
+        final long licenseId = license.getId();
 
         Policy policy = qm.createPolicy("Test Policy", Policy.Operator.ANY, Policy.ViolationState.INFO);
         qm.createPolicyCondition(policy, PolicyCondition.Subject.LICENSE, PolicyCondition.Operator.IS, license.getUuid().toString());
@@ -51,6 +53,19 @@ public class LicenseConditionTest extends PersistenceCapableTest {
         component.setResolvedLicense(license);
         component.setProject(project);
         qm.persist(component);
+
+        withJdbiHandle(handle -> handle.createUpdate("""
+            INSERT INTO "COMPONENTLICENSES" (
+                "COMPONENTID",
+                "LICENSE_ID",
+                "ORDINALITY",
+                "CONCLUDED"
+            )
+            VALUES (:componentId, :licenseId, 1, false)
+            """)
+        .bind("componentId", component.getId())
+        .bind("licenseId", licenseId)
+        .execute());
 
         new CelPolicyEngine().evaluateProject(project.getUuid());
         assertThat(qm.getAllPolicyViolations(component)).hasSize(1);
@@ -120,9 +135,21 @@ public class LicenseConditionTest extends PersistenceCapableTest {
 
         final var component = new Component();
         component.setName("acme-app");
-        component.setLicenseExpression("MIT");
         component.setProject(project);
         qm.persist(component);
+
+        withJdbiHandle(handle -> handle.createUpdate("""
+            INSERT INTO "COMPONENTLICENSES" (
+                "COMPONENTID",
+                "LICENSE_EXPRESSION",
+                "ORDINALITY",
+                "CONCLUDED"
+            )
+            VALUES (:componentId, :expression, 1, false)
+            """)
+        .bind("componentId", component.getId())
+        .bind("expression", "MIT")
+        .execute());
 
         new CelPolicyEngine().evaluateProject(project.getUuid());
         assertThat(qm.getAllPolicyViolations(component)).hasSize(1);
@@ -149,6 +176,19 @@ public class LicenseConditionTest extends PersistenceCapableTest {
         component.setProject(project);
         qm.persist(component);
 
+        withJdbiHandle(handle -> handle.createUpdate("""
+            INSERT INTO "COMPONENTLICENSES" (
+                "COMPONENTID",
+                "LICENSE",
+                "ORDINALITY",
+                "CONCLUDED"
+            )
+            VALUES (:componentId, :license, 1, false)
+            """)
+        .bind("componentId", component.getId())
+        .bind("license", license.getLicenseId())
+        .execute());
+
         new CelPolicyEngine().evaluateProject(project.getUuid());
         assertThat(qm.getAllPolicyViolations(component)).hasSize(1);
     }
@@ -173,6 +213,19 @@ public class LicenseConditionTest extends PersistenceCapableTest {
         component.setLicenseExpression("MIT OR Apache-2.0");
         component.setProject(project);
         qm.persist(component);
+
+        withJdbiHandle(handle -> handle.createUpdate("""
+            INSERT INTO "COMPONENTLICENSES" (
+                "COMPONENTID",
+                "LICENSE_EXPRESSION",
+                "ORDINALITY",
+                "CONCLUDED"
+            )
+            VALUES (:componentId, :expression, 1, false)
+            """)
+        .bind("componentId", component.getId())
+        .bind("expression", "MIT OR Apache-2.0")
+        .execute());
 
         new CelPolicyEngine().evaluateProject(project.getUuid());
         assertThat(qm.getAllPolicyViolations(component)).isEmpty();
@@ -199,6 +252,19 @@ public class LicenseConditionTest extends PersistenceCapableTest {
         component.setProject(project);
         qm.persist(component);
 
+        withJdbiHandle(handle -> handle.createUpdate("""
+            INSERT INTO "COMPONENTLICENSES" (
+                "COMPONENTID",
+                "LICENSE_EXPRESSION",
+                "ORDINALITY",
+                "CONCLUDED"
+            )
+            VALUES (:componentId, :expression, 1, false)
+            """)
+        .bind("componentId", component.getId())
+        .bind("expression", "MIT AND GPL-2.0")
+        .execute());
+
         new CelPolicyEngine().evaluateProject(project.getUuid());
         assertThat(qm.getAllPolicyViolations(component)).hasSize(1);
     }
@@ -217,6 +283,19 @@ public class LicenseConditionTest extends PersistenceCapableTest {
         component.setLicenseExpression("MIT");
         component.setProject(project);
         qm.persist(component);
+
+        withJdbiHandle(handle -> handle.createUpdate("""
+            INSERT INTO "COMPONENTLICENSES" (
+                "COMPONENTID",
+                "LICENSE_EXPRESSION",
+                "ORDINALITY",
+                "CONCLUDED"
+            )
+            VALUES (:componentId, :expression, 1, false)
+            """)
+        .bind("componentId", component.getId())
+        .bind("expression", "MIT")
+        .execute());
 
         new CelPolicyEngine().evaluateProject(project.getUuid());
         assertThat(qm.getAllPolicyViolations(component)).hasSize(1);
@@ -242,6 +321,20 @@ public class LicenseConditionTest extends PersistenceCapableTest {
         component.setProject(project);
         qm.persist(component);
 
+        withJdbiHandle(handle -> handle.createUpdate("""
+            INSERT INTO "COMPONENTLICENSES" (
+                "COMPONENTID",
+                "LICENSE_ID",
+                "ORDINALITY",
+                "CONCLUDED"
+            )
+            VALUES (:componentId, :licenseId, 1, false)
+            """)
+        .bind("componentId", component.getId())
+        .bind("licenseId", custom.getId())
+        .execute());
+
+
         new CelPolicyEngine().evaluateProject(project.getUuid());
         assertThat(qm.getAllPolicyViolations(component)).hasSize(1);
     }
@@ -252,6 +345,7 @@ public class LicenseConditionTest extends PersistenceCapableTest {
         license.setName("Apache 2.0");
         license.setUuid(UUID.randomUUID());
         license = qm.persist(license);
+        final long licenseId = license.getId();
 
         Policy policy = qm.createPolicy("Test Policy", Policy.Operator.ANY, Policy.ViolationState.INFO);
         qm.createPolicyCondition(policy, PolicyCondition.Subject.LICENSE, PolicyCondition.Operator.IS, "unresolved");
@@ -275,6 +369,19 @@ public class LicenseConditionTest extends PersistenceCapableTest {
         componentWithLicense.setProject(project);
         componentWithLicense.setResolvedLicense(license);
         qm.persist(componentWithLicense);
+
+        withJdbiHandle(handle -> handle.createUpdate("""
+            INSERT INTO "COMPONENTLICENSES" (
+                "COMPONENTID",
+                "LICENSE_ID",
+                "ORDINALITY",
+                "CONCLUDED"
+            )
+            VALUES (:componentId, :licenseId, 1, false)
+            """)
+        .bind("componentId", componentWithLicense.getId())
+        .bind("licenseId", licenseId)
+        .execute());
 
         policyEngine.evaluateProject(project.getUuid());
         assertThat(qm.getAllPolicyViolations(componentWithLicense)).hasSize(0);

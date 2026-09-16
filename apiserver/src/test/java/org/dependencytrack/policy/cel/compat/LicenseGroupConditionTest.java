@@ -59,6 +59,7 @@ public class LicenseGroupConditionTest extends PersistenceCapableTest {
 
         final var component = new Component();
         component.setName("acme-app");
+        component.setResolvedLicense(license);
         component.setProject(project);
         qm.persist(component);
 
@@ -259,6 +260,7 @@ public class LicenseGroupConditionTest extends PersistenceCapableTest {
 
         final var component = new Component();
         component.setName("acme-app");
+        component.setLicenseExpression("MIT OR Apache-2.0");
         component.setProject(project);
         qm.persist(component);
 
@@ -299,6 +301,7 @@ public class LicenseGroupConditionTest extends PersistenceCapableTest {
 
         final var component = new Component();
         component.setName("acme-app");
+        component.setLicenseExpression("MIT AND GPL-2.0");
         component.setProject(project);
         qm.persist(component);
 

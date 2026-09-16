@@ -704,6 +704,7 @@ public final class CelPolicyDao {
         }
 
         final List<String> fetchColumns = new ArrayList<>(selectColumns(COMPONENT_FIELDS, componentRequirements));
+        fetchColumns.addAll(selectColumns(COMPONENT_LICENSE_FIELDS, componentRequirements));
 
         final boolean shouldJoinPm =
                 componentRequirements.contains("latest_version")
@@ -726,6 +727,15 @@ public final class CelPolicyDao {
                              , ${fetchColumns?join(", ")}
                         </#if>
                           FROM "COMPONENT" AS c
+                          LEFT JOIN LATERAL (
+                            SELECT *
+                            FROM "COMPONENTLICENSES" AS "cl"
+                            WHERE "cl"."COMPONENTID" = "c"."ID"
+                            ORDER BY
+                              "cl"."ORDINALITY" ASC,
+                              "cl"."ID" ASC
+                            LIMIT 1
+                          ) AS "cl" ON TRUE
                         <#if shouldJoinPam!false>
                           LEFT JOIN "PACKAGE_ARTIFACT_METADATA" AS pam
                             ON pam."PURL" = c."PURL"
