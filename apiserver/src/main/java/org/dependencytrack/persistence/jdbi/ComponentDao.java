@@ -30,6 +30,7 @@ import org.dependencytrack.persistence.jdbi.query.ListComponentsQuery;
 import org.dependencytrack.persistence.jdbi.query.ListProjectComponentsQuery;
 import org.jdbi.v3.core.mapper.RowMapper;
 import org.jdbi.v3.core.mapper.reflect.BeanMapper;
+import org.jdbi.v3.core.statement.PreparedBatch;
 import org.jdbi.v3.core.statement.StatementContext;
 import org.jdbi.v3.sqlobject.SqlObject;
 import org.jdbi.v3.sqlobject.config.RegisterBeanMapper;
@@ -652,4 +653,65 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
         }
     }
 
+    public record ComponentLicenseUpdate(long componentId, Long licenseId, String license, String licenseExpression,
+        String licenseUrl, long ordinality, boolean concluded) {
+    }
+
+    default void replaceComponentLicenses(List<Long> componentIds, List<ComponentLicenseUpdate> updates) {
+        
+        if (componentIds.isEmpty()) {
+            return;
+        }
+ 
+        final PreparedBatch deleteBatch = getHandle().prepareBatch("""
+            DELETE FROM "COMPONENTLICENSES"
+            WHERE "COMPONENTID" = :componentId
+        """);
+
+        for (final Long componentId : componentIds) {
+            deleteBatch
+                .bind("componentId", componentId)
+                .add();
+        }
+
+        deleteBatch.execute();
+    
+        if (updates.isEmpty()) {
+            return;
+        }
+ 
+        final PreparedBatch batch = getHandle().prepareBatch("""
+            INSERT INTO "COMPONENTLICENSES" (
+                "COMPONENTID",
+                "LICENSE_ID",
+                "LICENSE",
+                "LICENSE_EXPRESSION",
+                "LICENSE_URL",
+                "ORDINALITY",
+                "CONCLUDED"
+            )
+            VALUES (
+                :componentId,
+                :licenseId,
+                :license,
+                :licenseExpression,
+                :licenseUrl,
+                :ordinality,
+                :concluded
+            )
+            """);
+    
+        for (final ComponentLicenseUpdate update : updates) {
+            batch.bind("componentId", update.componentId())
+                .bind("licenseId", update.licenseId())
+                .bind("license", update.license())
+                .bind("licenseExpression", update.licenseExpression())
+                .bind("licenseUrl", update.licenseUrl())
+                .bind("ordinality", update.ordinality())
+                .bind("concluded", update.concluded())
+                .add();
+        }
+    
+        batch.execute();
+    }
 }

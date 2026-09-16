@@ -43,6 +43,7 @@ import org.dependencytrack.model.ProjectMetadata;
 import org.dependencytrack.model.ServiceComponent;
 import org.dependencytrack.notification.JdoNotificationEmitter;
 import org.dependencytrack.notification.NotificationModelConverter;
+import org.dependencytrack.persistence.jdbi.ComponentDao;
 import org.dependencytrack.persistence.QueryManager;
 import org.dependencytrack.pkgmetadata.ResolvePackageMetadataWorkflow;
 import org.dependencytrack.proto.internal.workflow.v1.AnalyzeProjectWorkflowArg;
@@ -102,6 +103,7 @@ import static org.dependencytrack.parser.cyclonedx.util.ModelConverter.convertSe
 import static org.dependencytrack.parser.cyclonedx.util.ModelConverter.convertToProject;
 import static org.dependencytrack.parser.cyclonedx.util.ModelConverter.convertToProjectMetadata;
 import static org.dependencytrack.parser.cyclonedx.util.ModelConverter.flatten;
+import static org.dependencytrack.persistence.jdbi.JdbiFactory.useJdbiTransaction;
 import static org.dependencytrack.proto.internal.workflow.v1.AnalysisTrigger.ANALYSIS_TRIGGER_BOM_UPLOAD;
 import static org.dependencytrack.util.PersistenceUtil.applyIfChanged;
 import static org.dependencytrack.util.PersistenceUtil.assertPersistent;
@@ -361,7 +363,7 @@ public final class ImportBomActivity implements Activity<ImportBomArg, Void> {
             // See https://www.datanucleus.org/products/accessplatform_6_0/jdo/persistence.html#lifecycle
             qm.getPersistenceManager().setProperty(PROPERTY_RETAIN_VALUES, "true");
 
-            return qm.callInTransaction(() -> {
+            ProcessedBom processedBom = qm.callInTransaction(() -> {
                 final Project persistentProject = processProject(ctx, qm, bom.project(), bom.projectMetadata());
 
                 LOGGER.info("Processing %d components".formatted(bom.components().size()));
@@ -384,7 +386,38 @@ public final class ImportBomActivity implements Activity<ImportBomArg, Void> {
                         persistentServicesByIdentity.values()
                 );
             });
+
+            final Collection<Component> components = processedBom.components();
+            final List<Long> componentIds = components.stream().map(Component::getId).toList();
+            final List<ComponentDao.ComponentLicenseUpdate> updates = buildComponentLicenseUpdates(components);
+            
+            useJdbiTransaction(handle ->
+                    handle.attach(ComponentDao.class)
+                            .replaceComponentLicenses(componentIds, updates));
+
+            return processedBom;
         }
+    }
+
+    private static List<ComponentDao.ComponentLicenseUpdate> buildComponentLicenseUpdates(
+        Collection<Component> components) {
+        return components.stream()
+            .filter(component ->
+                    component.getResolvedLicense() != null
+                        || component.getLicense() != null
+                        || component.getLicenseExpression() != null
+                        || component.getLicenseUrl() != null)
+            .map(component -> new ComponentDao.ComponentLicenseUpdate(
+                    component.getId(),
+                    component.getResolvedLicense() != null
+                        ? component.getResolvedLicense().getId()
+                        : null,
+                    component.getLicense(),
+                    component.getLicenseExpression(),
+                    component.getLicenseUrl(),
+                    1,
+                    false))
+            .toList();
     }
 
     private static Project processProject(
