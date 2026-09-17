@@ -47,6 +47,7 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -653,11 +654,11 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
         }
     }
 
-    public record ComponentLicenseUpdate(long componentId, Long licenseId, String license, String licenseExpression,
+    public record ComponentLicenseRow(long componentId, Long licenseId, String license, String licenseExpression,
         String licenseUrl, long ordinality, boolean concluded) {
     }
 
-    default void replaceComponentLicenses(List<Long> componentIds, List<ComponentLicenseUpdate> updates) {
+    default void replaceComponentLicenses(List<Long> componentIds, List<ComponentLicenseRow> updates) {
         
         if (componentIds.isEmpty()) {
             return;
@@ -701,7 +702,7 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
             )
             """);
     
-        for (final ComponentLicenseUpdate update : updates) {
+        for (final ComponentLicenseRow update : updates) {
             batch.bind("componentId", update.componentId())
                 .bind("licenseId", update.licenseId())
                 .bind("license", update.license())
@@ -713,5 +714,80 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
         }
     
         batch.execute();
+    }
+
+    default Map<Long, ComponentLicenseRow> getFirstLicenseRow(Collection<Long> componentIds) {
+        if (componentIds.isEmpty()) {
+            return Map.of();
+        }
+
+        return getHandle().createQuery("""
+            SELECT DISTINCT ON (cl."COMPONENTID")
+                cl."COMPONENTID",
+                cl."LICENSE_ID",
+                cl."LICENSE",
+                cl."LICENSE_EXPRESSION",
+                cl."LICENSE_URL",
+                cl."ORDINALITY",
+                cl."CONCLUDED"
+            FROM "COMPONENTLICENSES" AS cl
+            WHERE cl."COMPONENTID" = ANY(:componentIds)
+            ORDER BY cl."COMPONENTID",
+                cl."ORDINALITY",
+                cl."ID"
+            """)
+            .bindArray("componentIds", Long.class, componentIds)
+            .reduceResultSet(new HashMap<>(), (result, rs, ctx) -> {
+                final long componentId = rs.getLong("COMPONENTID");
+
+                final long licenseIdValue = rs.getLong("LICENSE_ID");
+                final Long licenseId = rs.wasNull() ? null : licenseIdValue;
+
+                result.put(componentId, new ComponentLicenseRow(
+                    componentId,
+                    licenseId,
+                    rs.getString("LICENSE"),
+                    rs.getString("LICENSE_EXPRESSION"),
+                    rs.getString("LICENSE_URL"),
+                    rs.getLong("ORDINALITY"),
+                    rs.getBoolean("CONCLUDED")
+                ));
+
+                return result;
+            }
+        );
+    }
+
+    default Map<Long, License> getLicensesByIds(Collection<Long> licenseIds) {
+        if (licenseIds.isEmpty()) {
+            return Map.of();
+        }
+
+        return getHandle().createQuery("""
+            SELECT "ID",
+                "UUID",
+                "LICENSEID",
+                "NAME",
+                "ISCUSTOMLICENSE",
+                "FSFLIBRE",
+                "ISOSIAPPROVED"
+            FROM "LICENSE"
+            WHERE "ID" = ANY(:licenseIds)
+            """)
+            .bindArray("licenseIds", Long.class, licenseIds)
+            .reduceResultSet(new HashMap<>(), (result, rs, ctx) -> {
+                final var license = new License();
+                license.setId(rs.getLong("ID"));
+                license.setUuid(UUID.fromString(rs.getString("UUID")));
+                license.setLicenseId(rs.getString("LICENSEID"));
+                license.setName(rs.getString("NAME"));
+                license.setCustomLicense(rs.getBoolean("ISCUSTOMLICENSE"));
+                license.setFsfLibre(rs.getBoolean("FSFLIBRE"));
+                license.setOsiApproved(rs.getBoolean("ISOSIAPPROVED"));
+
+                result.put(license.getId(), license);
+                return result;
+            }
+        );
     }
 }

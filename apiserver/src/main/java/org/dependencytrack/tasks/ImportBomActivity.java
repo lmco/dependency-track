@@ -389,7 +389,7 @@ public final class ImportBomActivity implements Activity<ImportBomArg, Void> {
 
             final Collection<Component> components = processedBom.components();
             final List<Long> componentIds = components.stream().map(Component::getId).toList();
-            final List<ComponentDao.ComponentLicenseUpdate> updates = buildComponentLicenseUpdates(components);
+            final List<ComponentDao.ComponentLicenseRow> updates = buildComponentLicenseRows(components);
             
             useJdbiTransaction(handle ->
                     handle.attach(ComponentDao.class)
@@ -399,7 +399,7 @@ public final class ImportBomActivity implements Activity<ImportBomArg, Void> {
         }
     }
 
-    private static List<ComponentDao.ComponentLicenseUpdate> buildComponentLicenseUpdates(
+    private static List<ComponentDao.ComponentLicenseRow> buildComponentLicenseRows(
         Collection<Component> components) {
         return components.stream()
             .filter(component ->
@@ -407,7 +407,7 @@ public final class ImportBomActivity implements Activity<ImportBomArg, Void> {
                         || component.getLicense() != null
                         || component.getLicenseExpression() != null
                         || component.getLicenseUrl() != null)
-            .map(component -> new ComponentDao.ComponentLicenseUpdate(
+            .map(component -> new ComponentDao.ComponentLicenseRow(
                     component.getId(),
                     component.getResolvedLicense() != null
                         ? component.getResolvedLicense().getId()

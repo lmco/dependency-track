@@ -33,11 +33,13 @@ import org.dependencytrack.model.ComponentIdentity;
 import org.dependencytrack.model.ComponentOccurrence;
 import org.dependencytrack.model.ComponentProperty;
 import org.dependencytrack.model.DependencyMetrics;
+import org.dependencytrack.model.License;
 import org.dependencytrack.model.PackageMetadata;
 import org.dependencytrack.model.Project;
 import org.dependencytrack.model.RepositoryMetaComponent;
 import org.dependencytrack.model.RepositoryType;
 import org.dependencytrack.model.sqlmapping.ComponentProjection;
+import org.dependencytrack.persistence.jdbi.ComponentDao;
 import org.dependencytrack.persistence.jdbi.MetricsDao;
 import org.dependencytrack.persistence.jdbi.PackageMetadataDao;
 import org.dependencytrack.resources.v1.vo.DependencyGraphResponse;
@@ -52,6 +54,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -102,7 +105,41 @@ final class ComponentQueryManager extends QueryManager {
         final Query<Component> query = pm.newQuery(Component.class, "project == :project");
         query.getFetchPlan().setMaxFetchDepth(2);
         query.setOrdering("name asc");
-        return (List<Component>) query.execute(project);
+        final List<Component> components = (List<Component>) query.execute(project);
+
+        if (components.isEmpty()) {
+            return components;
+        }
+
+        final Map<Long, ComponentDao.ComponentLicenseRow> rowsByComponentId =
+            withJdbiHandle(handle -> handle.attach(ComponentDao.class)
+                .getFirstLicenseRow(components.stream().map(Component::getId).toList())
+            );
+
+        final List<Long> licenseIds = rowsByComponentId.values().stream()
+            .map(ComponentDao.ComponentLicenseRow::licenseId)
+            .filter(Objects::nonNull).distinct().toList();
+
+        final Map<Long, License> licensesById = withJdbiHandle(handle -> 
+            handle.attach(ComponentDao.class).getLicensesByIds(licenseIds));
+
+        for (final Component component : components) {
+            final ComponentDao.ComponentLicenseRow row = rowsByComponentId.get(component.getId());
+
+            if (row == null) {
+                continue;
+            }
+
+            component.setLicense(row.license());
+            component.setLicenseExpression(row.licenseExpression());
+            component.setLicenseUrl(row.licenseUrl());
+
+            if (row.licenseId() != null) {
+                component.setResolvedLicense(licensesById.get(row.licenseId()));
+            }
+        }
+
+        return components;
     }
 
     /**
