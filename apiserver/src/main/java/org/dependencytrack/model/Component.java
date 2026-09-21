@@ -75,7 +75,6 @@ import java.util.UUID;
 @FetchGroups({
         @FetchGroup(name = "ALL", members = {
                 @Persistent(name = "project"),
-                @Persistent(name = "resolvedLicenses"),
                 @Persistent(name = "externalReferences"),
                 @Persistent(name = "parent"),
                 @Persistent(name = "children"),
@@ -412,6 +411,8 @@ public class Component implements Serializable {
     private transient String author;
 
     private transient String license;
+    @Pattern(regexp = RegexSequence.Definition.PRINTABLE_CHARS, message = "The license expression may only contain printable characters")
+    @ValidSpdxExpression
     private transient String licenseExpression;
     private transient String licenseUrl;
     private transient License resolvedLicense;
