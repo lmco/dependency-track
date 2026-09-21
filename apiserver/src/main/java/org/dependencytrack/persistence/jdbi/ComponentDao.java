@@ -758,7 +758,12 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
         );
     }
 
-    default Map<Long, License> getLicensesByIds(Collection<Long> licenseIds) {
+
+    public record LicenseRow(long id, UUID uuid, String licenseId, String name,
+        boolean customLicense, boolean fsfLibre, boolean osiApproved) {
+    }
+
+    default Map<Long, LicenseRow> getLicensesByIds(Collection<Long> licenseIds) {
         if (licenseIds.isEmpty()) {
             return Map.of();
         }
@@ -776,16 +781,17 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
             """)
             .bindArray("licenseIds", Long.class, licenseIds)
             .reduceResultSet(new HashMap<>(), (result, rs, ctx) -> {
-                final var license = new License();
-                license.setId(rs.getLong("ID"));
-                license.setUuid(UUID.fromString(rs.getString("UUID")));
-                license.setLicenseId(rs.getString("LICENSEID"));
-                license.setName(rs.getString("NAME"));
-                license.setCustomLicense(rs.getBoolean("ISCUSTOMLICENSE"));
-                license.setFsfLibre(rs.getBoolean("FSFLIBRE"));
-                license.setOsiApproved(rs.getBoolean("ISOSIAPPROVED"));
+                final var license = new LicenseRow(
+                    rs.getLong("ID"),
+                    UUID.fromString(rs.getString("UUID")),
+                    rs.getString("LICENSEID"),
+                    rs.getString("NAME"),
+                    rs.getBoolean("ISCUSTOMLICENSE"),
+                    rs.getBoolean("FSFLIBRE"),
+                    rs.getBoolean("ISOSIAPPROVED")
+                );
 
-                result.put(license.getId(), license);
+                result.put(license.id(), license);
                 return result;
             }
         );

@@ -120,7 +120,7 @@ final class ComponentQueryManager extends QueryManager {
             .map(ComponentDao.ComponentLicenseRow::licenseId)
             .filter(Objects::nonNull).distinct().toList();
 
-        final Map<Long, License> licensesById = withJdbiHandle(handle -> 
+        final Map<Long, ComponentDao.LicenseRow> licensesById = withJdbiHandle(handle -> 
             handle.attach(ComponentDao.class).getLicensesByIds(licenseIds));
 
         for (final Component component : components) {
@@ -135,7 +135,18 @@ final class ComponentQueryManager extends QueryManager {
             component.setLicenseUrl(row.licenseUrl());
 
             if (row.licenseId() != null) {
-                component.setResolvedLicense(licensesById.get(row.licenseId()));
+                final ComponentDao.LicenseRow licenseRow = licensesById.get(row.licenseId());
+                if (licenseRow != null) {
+                    final var license = new License();
+                    license.setId(licenseRow.id());
+                    license.setUuid(licenseRow.uuid());
+                    license.setLicenseId(licenseRow.licenseId());
+                    license.setName(licenseRow.name());
+                    license.setCustomLicense(licenseRow.customLicense());
+                    license.setFsfLibre(licenseRow.fsfLibre());
+                    license.setOsiApproved(licenseRow.osiApproved());
+                    component.setResolvedLicense(license);
+                }
             }
         }
 
