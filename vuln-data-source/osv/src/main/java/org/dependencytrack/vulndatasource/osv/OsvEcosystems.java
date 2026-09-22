@@ -21,6 +21,7 @@ package org.dependencytrack.vulndatasource.osv;
 import org.dependencytrack.support.distrometadata.AlpineDistribution;
 import org.dependencytrack.support.distrometadata.DebianDistribution;
 import org.dependencytrack.support.distrometadata.OsDistribution;
+import org.dependencytrack.support.distrometadata.RedHatDistribution;
 import org.dependencytrack.support.distrometadata.UbuntuDistribution;
 import org.jspecify.annotations.Nullable;
 
@@ -29,8 +30,7 @@ import java.nio.charset.StandardCharsets;
 
 final class OsvEcosystems {
 
-    private OsvEcosystems() {
-    }
+    private OsvEcosystems() {}
 
     static @Nullable OsDistribution toOsDistribution(@Nullable String ecosystem) {
         if (ecosystem == null || ecosystem.isEmpty()) {
@@ -54,6 +54,10 @@ final class OsvEcosystems {
                 final String versionOrSeries = suffix.replaceAll(":(LTS|Pro)", "");
                 yield UbuntuDistribution.of(versionOrSeries);
             }
+            // The Red Hat suffix is a CPE 2.2 URI fragment scoping the RPM to a
+            // specific Red Hat product stream, e.g. `rhel_aus:8.4::appstream`.
+            // https://ossf.github.io/osv-schema/#defined-ecosystems
+            case "red hat" -> RedHatDistribution.ofCpe(suffix);
             default -> null;
         };
     }
@@ -62,9 +66,6 @@ final class OsvEcosystems {
         // Some ecosystems contain spaces, e.g. "Red Hat".
         // NB: URLEncoder encodes spaces as "+", but GCS (where OSV hosts its data dumps)
         // requires spaces to be percent-encoded.
-        return URLEncoder
-                .encode(ecosystem, StandardCharsets.UTF_8)
-                .replace("+", "%20");
+        return URLEncoder.encode(ecosystem, StandardCharsets.UTF_8).replace("+", "%20");
     }
-
 }

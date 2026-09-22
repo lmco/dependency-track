@@ -22,22 +22,17 @@
     <parent>
         <groupId>org.dependencytrack</groupId>
         <artifactId>dependency-track-parent</artifactId>
-        <version>5.0.3</version>
+        <version>5.1.1</version>
     </parent>
-
     <artifactId>notification-parent</artifactId>
     <packaging>pom</packaging>
-
     <name>Notification :: Parent</name>
-
     <modules>
         <module>api</module>
         <module>publishing</module>
         <module>templating</module>
     </modules>
-
     <properties>
         <project.parentBaseDir>${project.basedir}/..</project.parentBaseDir>
     </properties>
-
 </project>

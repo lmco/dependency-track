@@ -20,11 +20,14 @@ package org.dependencytrack.persistence.jdbi;
 
 import org.dependencytrack.model.DependencyMetrics;
 import org.dependencytrack.model.PortfolioMetrics;
+import org.dependencytrack.model.Project;
 import org.dependencytrack.model.ProjectMetrics;
 import org.dependencytrack.model.VulnerabilityMetrics;
+import org.jdbi.v3.core.statement.SqlStatements;
 import org.jdbi.v3.sqlobject.SqlObject;
 import org.jdbi.v3.sqlobject.config.RegisterBeanMapper;
 import org.jdbi.v3.sqlobject.customizer.Bind;
+import org.jdbi.v3.sqlobject.customizer.QueryTimeOut;
 import org.jdbi.v3.sqlobject.statement.SqlCall;
 import org.jdbi.v3.sqlobject.statement.SqlQuery;
 import org.jdbi.v3.sqlobject.statement.SqlUpdate;
@@ -37,9 +40,20 @@ import java.util.List;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
-/**
- * @since 5.0.0
- */
+/// DAO for interacting with time series metrics.
+///
+/// ### Orphans
+///
+/// Rows in `DEPENDENCYMETRICS` and `PROJECTMETRICS` may reference
+/// deleted `COMPONENT` or `PROJECT` rows. The FKs were dropped to
+/// eliminate lock contention between partition maintenance,
+/// project / component deletion, and metrics updates (see ADR 029).
+/// Orphans are naturally cleaned up as part of partition maintenance.
+///
+/// All read paths must therefore be keyed by a still-existing parent IDs.
+/// **Do not add joins that expose orphan rows without an explicit existence filter**!
+///
+/// @since 5.0.0
 public interface MetricsDao extends SqlObject {
 
     Pattern VALID_TABLE_IDENTIFIER_PATTERN = Pattern.compile("^\"[A-Z][A-Z0-9_]+\"$");
@@ -105,6 +119,7 @@ public interface MetricsDao extends SqlObject {
                    , SUM("FINDINGS_TOTAL") AS findings_total
                    , SUM("FINDINGS_UNAUDITED") AS findings_unaudited
                    , SUM("HIGH") AS high
+                   , SUM("KEV") AS kev
                    , SUM("RISKSCORE") as inherited_risk_score
                    , SUM("LOW") AS low
                    , SUM("MEDIUM") AS medium
@@ -138,6 +153,7 @@ public interface MetricsDao extends SqlObject {
                  , COALESCE(dm.findings_unaudited, 0) AS findings_unaudited
                  , date_range.metrics_date AS first_occurrence
                  , COALESCE(dm.high, 0) AS high
+                 , COALESCE(dm.kev, 0) AS kev
                  , COALESCE(dm.inherited_risk_score, 0) AS inherited_risk_score
                  , date_range.metrics_date AS last_occurrence
                  , COALESCE(dm.low, 0) AS low
@@ -172,27 +188,16 @@ public interface MetricsDao extends SqlObject {
     @RegisterBeanMapper(PortfolioMetrics.class)
     List<PortfolioMetrics> getPortfolioMetricsForDays(@Bind int days);
 
-    default void refreshGlobalPortfolioMetrics() {
-        if (!getHandle().isInTransaction()) {
-            // Required so SET LOCAL doesn't silently no-op.
-            throw new IllegalStateException(
-                    "refreshGlobalPortfolioMetrics must run inside a transaction");
-        }
-
-        // NB: All other metrics operations explicitly cast timestamps to UTC
-        // and do not require this workaround. Setting the local timezone here
-        // was done to avoid having to drop and re-create the materialized view
-        // via schema migration. If the view ever needs updating for unrelated
-        // reasons, this workaround could be removed.
-        getHandle().execute("SET LOCAL TIME ZONE 'UTC'");
-        getHandle().execute("REFRESH MATERIALIZED VIEW CONCURRENTLY \"PORTFOLIOMETRICS_GLOBAL\"");
-    }
+    @SqlUpdate("""
+            REFRESH MATERIALIZED VIEW CONCURRENTLY "PORTFOLIOMETRICS_GLOBAL"
+            """)
+    @QueryTimeOut(0) // Exempt from global query timeout b/c refreshes may legitimately run longer.
+    void refreshGlobalPortfolioMetrics();
 
     default void refreshVulnerabilityMetrics() {
         if (!getHandle().isInTransaction()) {
             // Required so SET LOCAL doesn't silently no-op.
-            throw new IllegalStateException(
-                    "refreshVulnerabilityMetrics must run inside a transaction");
+            throw new IllegalStateException("refreshVulnerabilityMetrics must run inside a transaction");
         }
 
         // NB: All other metrics operations explicitly cast timestamps to UTC
@@ -201,8 +206,14 @@ public interface MetricsDao extends SqlObject {
         // via schema migration. If the view ever needs updating for unrelated
         // reasons, this workaround could be removed.
         getHandle().execute("SET LOCAL TIME ZONE 'UTC'");
-        getHandle().execute("REFRESH MATERIALIZED VIEW CONCURRENTLY \"VULNERABILITYMETRICS\"");
+        refreshVulnerabilityMetricsView();
     }
+
+    @SqlUpdate("""
+            REFRESH MATERIALIZED VIEW CONCURRENTLY "VULNERABILITYMETRICS"
+            """)
+    @QueryTimeOut(0) // Exempt from global query timeout b/c refreshes may legitimately run longer.
+    void refreshVulnerabilityMetricsView();
 
     @SqlQuery("""
             SELECT "YEAR" AS "year"
@@ -217,7 +228,9 @@ public interface MetricsDao extends SqlObject {
     List<VulnerabilityMetrics> getVulnerabilityMetrics();
 
     @SqlQuery("""
-            SELECT *, "RISKSCORE" AS inherited_risk_score FROM "PROJECTMETRICS"
+            SELECT *, "RISKSCORE" AS inherited_risk_score
+                 , "UNASSIGNED_SEVERITY" AS unassigned
+              FROM "PROJECTMETRICS"
             WHERE "PROJECT_ID" = :projectId
             AND "LAST_OCCURRENCE" >= :since
             ORDER BY "LAST_OCCURRENCE" ASC
@@ -226,7 +239,9 @@ public interface MetricsDao extends SqlObject {
     List<ProjectMetrics> getProjectMetricsSince(@Bind long projectId, @Bind Instant since);
 
     @SqlQuery("""
-            SELECT *, "RISKSCORE" AS inherited_risk_score FROM "DEPENDENCYMETRICS"
+            SELECT *, "RISKSCORE" AS inherited_risk_score
+                 , "UNASSIGNED_SEVERITY" AS unassigned
+              FROM "DEPENDENCYMETRICS"
             WHERE "COMPONENT_ID" = :componentId
             AND "LAST_OCCURRENCE" >= :since
             ORDER BY "LAST_OCCURRENCE" ASC
@@ -242,6 +257,7 @@ public interface MetricsDao extends SqlObject {
 
     @SqlQuery("""
             SELECT *, "RISKSCORE" AS inherited_risk_score
+                 , "UNASSIGNED_SEVERITY" AS unassigned
             FROM "PROJECTMETRICS"
             WHERE "PROJECT_ID" = :projectId
             ORDER BY "LAST_OCCURRENCE" DESC
@@ -250,8 +266,15 @@ public interface MetricsDao extends SqlObject {
     @RegisterBeanMapper(ProjectMetrics.class)
     ProjectMetrics getMostRecentProjectMetrics(@Bind final long projectId);
 
+    default @Nullable ProjectMetrics getMostRecentProjectMetrics(Project project) {
+        return project.getCollectionLogic() == null
+                ? getMostRecentProjectMetrics(project.getId())
+                : getMostRecentCollectionProjectMetrics(project.getId());
+    }
+
     @SqlQuery("""
             SELECT metrics.*, metrics."RISKSCORE" AS inherited_risk_score
+                 , metrics."UNASSIGNED_SEVERITY" AS unassigned
               FROM UNNEST(:projectIds) AS project(id)
              INNER JOIN LATERAL (
                SELECT *
@@ -350,6 +373,7 @@ public interface MetricsDao extends SqlObject {
                    , SUM("FINDINGS_TOTAL") AS findings_total
                    , SUM("FINDINGS_UNAUDITED") AS findings_unaudited
                    , SUM("HIGH") AS high
+                   , SUM("KEV") AS kev
                    , SUM("LOW") AS low
                    , SUM("MEDIUM") AS medium
                    , SUM("POLICYVIOLATIONS_AUDITED") AS policy_violations_audited
@@ -382,6 +406,7 @@ public interface MetricsDao extends SqlObject {
                  , COALESCE(dm.findings_unaudited, 0) AS "findingsUnaudited"
                  , date_range.metrics_date AS "firstOccurrence"
                  , COALESCE(dm.high, 0) AS high
+                 , COALESCE(dm.kev, 0) AS kev
                  , COALESCE(dm.inherited_risk_score, 0) AS "inheritedRiskScore"
                  , date_range.metrics_date AS "lastOccurrence"
                  , COALESCE(dm.low, 0) AS low
@@ -411,13 +436,10 @@ public interface MetricsDao extends SqlObject {
              ORDER BY date_range.metrics_date
             """)
     @RegisterBeanMapper(ProjectMetrics.class)
-    List<ProjectMetrics> getCollectionProjectMetricsSince(
-            @Bind long projectId,
-            @Bind Instant since);
+    List<ProjectMetrics> getCollectionProjectMetricsSince(@Bind long projectId, @Bind Instant since);
 
     default @Nullable ProjectMetrics getMostRecentCollectionProjectMetrics(long projectId) {
-        final List<ProjectMetrics> metrics =
-                getMostRecentCollectionProjectMetrics(List.of(projectId));
+        final List<ProjectMetrics> metrics = getMostRecentCollectionProjectMetrics(List.of(projectId));
         return !metrics.isEmpty() ? metrics.getFirst() : null;
     }
 
@@ -482,6 +504,7 @@ public interface MetricsDao extends SqlObject {
                  , COALESCE(SUM(pm."COMPONENTS"), 0) AS components
                  , COALESCE(SUM(pm."CRITICAL"), 0) AS critical
                  , COALESCE(SUM(pm."HIGH"), 0) AS high
+                 , COALESCE(SUM(pm."KEV"), 0) AS kev
                  , COALESCE(SUM(pm."LOW"), 0) AS low
                  , COALESCE(SUM(pm."MEDIUM"), 0) AS medium
                  , COALESCE(SUM(pm."UNASSIGNED_SEVERITY"), 0) AS unassigned
@@ -535,6 +558,7 @@ public interface MetricsDao extends SqlObject {
 
     @SqlQuery("""
             SELECT *, "RISKSCORE" AS inherited_risk_score
+                 , "UNASSIGNED_SEVERITY" AS unassigned
             FROM "DEPENDENCYMETRICS"
             WHERE "COMPONENT_ID" = :componentId
             ORDER BY "LAST_OCCURRENCE" DESC
@@ -545,6 +569,7 @@ public interface MetricsDao extends SqlObject {
 
     @SqlQuery("""
             SELECT metrics.*, metrics."RISKSCORE" AS inherited_risk_score
+                 , metrics."UNASSIGNED_SEVERITY" AS unassigned
               FROM UNNEST(:componentIds) AS component(id)
              INNER JOIN LATERAL (
                SELECT *
@@ -590,14 +615,14 @@ public interface MetricsDao extends SqlObject {
                     target_date := today_utc + day_offset;
                     next_date := target_date + 1;
                     partition_suffix := to_char(target_date, 'YYYYMMDD');
-            
+
                     FOREACH table_name IN ARRAY metric_tables
                     LOOP
                         partition_name := format('%s_%s', table_name, partition_suffix);
                         SELECT EXISTS (
                             SELECT 1 FROM pg_class WHERE relname = partition_name
                         ) INTO partition_exists;
-            
+
                         IF NOT partition_exists THEN
                             EXECUTE format(
                                 'CREATE TABLE IF NOT EXISTS %I (LIKE %I INCLUDING ALL);',
@@ -629,14 +654,12 @@ public interface MetricsDao extends SqlObject {
     List<String> getExpiredPartitions(@Bind String parentTable, @Bind int retentionDays);
 
     default int deleteProjectMetricsForRetentionDuration(Duration retentionDuration) {
-        final List<String> expired = getExpiredPartitions(
-                "\"PROJECTMETRICS\"", (int) retentionDuration.toDays());
+        final List<String> expired = getExpiredPartitions("\"PROJECTMETRICS\"", (int) retentionDuration.toDays());
         return dropPartitions("\"PROJECTMETRICS\"", expired);
     }
 
     default int deleteComponentMetricsForRetentionDuration(Duration retentionDuration) {
-        final List<String> expired = getExpiredPartitions(
-                "\"DEPENDENCYMETRICS\"", (int) retentionDuration.toDays());
+        final List<String> expired = getExpiredPartitions("\"DEPENDENCYMETRICS\"", (int) retentionDuration.toDays());
         return dropPartitions("\"DEPENDENCYMETRICS\"", expired);
     }
 
@@ -652,16 +675,23 @@ public interface MetricsDao extends SqlObject {
                     trx.execute("ALTER TABLE %s DETACH PARTITION %s FINALIZE".formatted(parentTable, partition));
                 });
             } else {
-                getHandle().execute("ALTER TABLE %s DETACH PARTITION %s CONCURRENTLY".formatted(parentTable, partition));
+                getHandle()
+                        .createUpdate(
+                                "ALTER TABLE %s DETACH PARTITION %s CONCURRENTLY".formatted(parentTable, partition))
+                        // Exempt from global query timeout b/c detachment has to wait for all
+                        // transactions accessing the partition to complete.
+                        .configure(SqlStatements.class, cfg -> cfg.setQueryTimeout(0))
+                        .execute();
             }
-            getHandle().execute("DROP TABLE IF EXISTS %s CASCADE".formatted(partition));
+            getHandle().execute("DROP TABLE IF EXISTS %s".formatted(partition));
             deletedCount++;
         }
         return deletedCount;
     }
 
     default boolean isPartitionDetachPending(String parentTable, String partition) {
-        return getHandle().createQuery("""
+        return getHandle()
+                .createQuery("""
                         SELECT inhdetachpending
                           FROM pg_inherits
                           WHERE inhparent = CAST(:parentTable AS regclass)

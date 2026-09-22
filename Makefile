@@ -16,6 +16,7 @@
 # Copyright (c) OWASP Foundation. All Rights Reserved.
 
 BASE_REF ?= origin/main
+BUF_FORMAT_FLAGS := --exclude-path support/cyclonedx-proto/src/main/proto/org/cyclonedx/v1_7/cyclonedx.proto
 MIGRATION_DIR := migration/src/main/resources/org/dependencytrack/migration
 DEX_MIGRATION_DIR := dex/engine-migration/src/main/resources/org/dependencytrack/dex/engine/migration
 SQUAWK_IMAGE := ghcr.io/sbdchd/squawk:2.58.0
@@ -71,8 +72,12 @@ install:
 .PHONY: install
 
 lint-java:
-	$(MVND) $(MVN_FLAGS) -Dmaven.build.cache.enabled=false validate
+	$(MVND) $(MVN_FLAGS) -q -Dmaven.build.cache.enabled=false validate
 .PHONY: lint-java
+
+format-java:
+	$(MVND) $(MVN_FLAGS) -q -Dmaven.build.cache.enabled=false spotless:apply
+.PHONY: format-java
 
 lint-migrations:
 	@if ! git rev-parse --verify --quiet "$(BASE_REF)" >/dev/null; then \
@@ -122,19 +127,24 @@ lint-openapi:
 
 lint-proto:
 	buf lint
+	buf format --diff --exit-code $(BUF_FORMAT_FLAGS)
 .PHONY: lint-proto
+
+format-proto:
+	buf format --write $(BUF_FORMAT_FLAGS)
+.PHONY: format-proto
 
 lint: lint-java lint-migrations lint-dex-migration lint-openapi lint-proto
 .PHONY: lint
 
 test:
-	$(MVND) $(MVN_FLAGS) -Dcheckstyle.skip -Dcyclonedx.skip verify
+	$(MVND) $(MVN_FLAGS) -Dspotless.check.skip -Dcyclonedx.skip verify
 .PHONY: test
 
 test-single:
 	$(MVND) $(MVN_FLAGS) test \
 		-Dmaven.build.cache.enabled=false \
-		-Dcheckstyle.skip \
+		-Dspotless.check.skip \
 		-Dcyclonedx.skip \
 		-pl "$(MODULE)" \
 		-am \
@@ -166,6 +176,15 @@ new-migration:
 apiserver-dev:
 	$(MVN) $(MVN_FLAGS) -q -Pquick,dev-services -pl apiserver -am verify
 .PHONY: apiserver-dev
+
+apiserver-dev-remove-containers:
+	@ids=$$(docker ps -aq --filter label=org.dependencytrack.dev-services); \
+	if [ -n "$$ids" ]; then \
+		docker rm -f $$ids; \
+	else \
+		echo "No dev services containers to remove"; \
+	fi
+.PHONY: apiserver-dev-remove-containers
 
 test-e2e: build-image
 	$(MVND) $(MVN_FLAGS) -pl e2e -DskipE2E=false verify

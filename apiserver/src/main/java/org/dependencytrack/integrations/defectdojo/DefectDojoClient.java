@@ -46,10 +46,7 @@ public class DefectDojoClient {
     private final DefectDojoUploader uploader;
     private final URL baseURL;
 
-    public DefectDojoClient(
-            HttpClient httpClient,
-            DefectDojoUploader uploader,
-            URL baseURL) {
+    public DefectDojoClient(HttpClient httpClient, DefectDojoUploader uploader, URL baseURL) {
         this.httpClient = httpClient;
         this.uploader = uploader;
         this.baseURL = baseURL;
@@ -60,7 +57,8 @@ public class DefectDojoClient {
             final String engagementId,
             final InputStream findingsJson,
             final Boolean verifyFindings,
-            final @Nullable String testTitle) {
+            final @Nullable String testTitle,
+            final @Nullable String groupBy) {
         LOGGER.debug("Uploading Dependency-Track findings to DefectDojo");
 
         final var multipart = new MultipartBodyPublisher()
@@ -76,6 +74,9 @@ public class DefectDojoClient {
         if (testTitle != null) {
             multipart.addFormField("test_title", testTitle);
         }
+        if (groupBy != null) {
+            multipart.addFormField("group_by", groupBy);
+        }
 
         final var request = HttpRequest.newBuilder()
                 .uri(URI.create(baseURL + "/api/v2/import-scan/"))
@@ -86,12 +87,12 @@ public class DefectDojoClient {
                 .build();
 
         try {
-            final HttpResponse<String> response = httpClient
-                    .send(request, HttpResponse.BodyHandlers.ofString());
+            final HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 201) {
                 LOGGER.debug("Successfully uploaded findings to DefectDojo");
             } else {
-                uploader.handleUnexpectedHttpResponse(LOGGER, request.uri().toString(), response.statusCode(), response.body());
+                uploader.handleUnexpectedHttpResponse(
+                        LOGGER, request.uri().toString(), response.statusCode(), response.body());
             }
         } catch (IOException ex) {
             uploader.handleException(LOGGER, ex);
@@ -113,14 +114,14 @@ public class DefectDojoClient {
                     .GET()
                     .build();
 
-            HttpResponse<String> response = httpClient
-                    .send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 200 && response.body() != null) {
                 JsonNode dojoObj = Mappers.jsonMapper().readTree(response.body());
                 JsonNode dojoArray = dojoObj.get("results");
                 ArrayList<String> dojoTests = jsonToList(dojoArray);
 
-                while (dojoObj.hasNonNull("next") && !dojoObj.get("next").asText().isBlank()) {
+                while (dojoObj.hasNonNull("next")
+                        && !dojoObj.get("next").asText().isBlank()) {
                     final String nextUrl = dojoObj.get("next").asText();
                     LOGGER.debug("Making the subsequent pagination call on {}", nextUrl);
                     request = HttpRequest.newBuilder()
@@ -129,8 +130,7 @@ public class DefectDojoClient {
                             .header("Authorization", "Token " + token)
                             .GET()
                             .build();
-                    response = httpClient
-                            .send(request, HttpResponse.BodyHandlers.ofString());
+                    response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
                     dojoObj = Mappers.jsonMapper().readTree(response.body());
                     dojoArray = dojoObj.get("results");
                     if (dojoArray != null) {
@@ -140,7 +140,9 @@ public class DefectDojoClient {
                 LOGGER.debug("Successfully retrieved the test list ");
                 return dojoTests;
             } else {
-                LOGGER.warn("DefectDojo Client did not receive expected response while attempting to retrieve tests list {}", response.statusCode());
+                LOGGER.warn(
+                        "DefectDojo Client did not receive expected response while attempting to retrieve tests list {}",
+                        response.statusCode());
             }
         } catch (IOException ex) {
             uploader.handleException(LOGGER, ex);
@@ -152,15 +154,16 @@ public class DefectDojoClient {
     }
 
     public String getDojoTestId(
-            final String engagementID,
-            final ArrayList<String> dojoTests,
-            final @Nullable String testTitle) {
+            final String engagementID, final ArrayList<String> dojoTests, final @Nullable String testTitle) {
         for (final String dojoTestJson : dojoTests) {
             try {
                 JsonNode dojoTest = Mappers.jsonMapper().readTree(dojoTestJson);
                 if (dojoTest.path("engagement").asText().equals(engagementID)
-                        && dojoTest.path("scan_type").asText().equals("Dependency Track Finding Packaging Format (FPF) Export")
-                        && (testTitle == null || dojoTest.path("title").asText("").equals(testTitle))) {
+                        && dojoTest.path("scan_type")
+                                .asText()
+                                .equals("Dependency Track Finding Packaging Format (FPF) Export")
+                        && (testTitle == null
+                                || dojoTest.path("title").asText("").equals(testTitle))) {
                     return dojoTest.path("id").asText();
                 }
             } catch (JsonProcessingException e) {
@@ -187,7 +190,8 @@ public class DefectDojoClient {
             final String testId,
             final Boolean doNotReactivate,
             final Boolean verifyFindings,
-            final @Nullable String testTitle) {
+            final @Nullable String testTitle,
+            final @Nullable String groupBy) {
         LOGGER.debug("Re-reimport Dependency-Track findings to DefectDojo per Engagement");
 
         final var multipart = new MultipartBodyPublisher()
@@ -205,6 +209,9 @@ public class DefectDojoClient {
         if (testTitle != null) {
             multipart.addFormField("test_title", testTitle);
         }
+        if (groupBy != null) {
+            multipart.addFormField("group_by", groupBy);
+        }
 
         final var request = HttpRequest.newBuilder()
                 .uri(URI.create(baseURL + "/api/v2/reimport-scan/"))
@@ -215,12 +222,12 @@ public class DefectDojoClient {
                 .build();
 
         try {
-            final HttpResponse<String> response = httpClient
-                    .send(request, HttpResponse.BodyHandlers.ofString());
+            final HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 201) {
                 LOGGER.debug("Successfully reimport findings to DefectDojo");
             } else {
-                uploader.handleUnexpectedHttpResponse(LOGGER, request.uri().toString(), response.statusCode(), response.body());
+                uploader.handleUnexpectedHttpResponse(
+                        LOGGER, request.uri().toString(), response.statusCode(), response.body());
             }
         } catch (IOException ex) {
             uploader.handleException(LOGGER, ex);

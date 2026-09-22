@@ -21,11 +21,6 @@ package org.dependencytrack.resources.v1;
 import alpine.server.filters.ApiFilter;
 import alpine.server.filters.AuthFeature;
 import com.github.packageurl.PackageURL;
-import jakarta.json.JsonArray;
-import jakarta.json.JsonObject;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.Response;
 import org.dependencytrack.JerseyTestExtension;
 import org.dependencytrack.ResourceTest;
 import org.dependencytrack.auth.Permissions;
@@ -43,6 +38,12 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+
+import jakarta.json.JsonArray;
+import jakarta.json.JsonObject;
+import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 
 import java.time.Instant;
 import java.util.Date;
@@ -62,16 +63,15 @@ public class RepositoryResourceTest extends ResourceTest {
     private static final SecretManager secretManager = mock(SecretManager.class);
 
     @RegisterExtension
-    static JerseyTestExtension jersey = new JerseyTestExtension(
-            new ResourceConfig(RepositoryResource.class)
-                    .register(ApiFilter.class)
-                    .register(AuthFeature.class)
-                    .register(new AbstractBinder() {
-                        @Override
-                        protected void configure() {
-                            bind(secretManager).to(SecretManager.class);
-                        }
-                    }));
+    static JerseyTestExtension jersey = new JerseyTestExtension(new ResourceConfig(RepositoryResource.class)
+            .register(ApiFilter.class)
+            .register(AuthFeature.class)
+            .register(new AbstractBinder() {
+                @Override
+                protected void configure() {
+                    bind(secretManager).to(SecretManager.class);
+                }
+            }));
 
     @BeforeEach
     @Override
@@ -85,53 +85,56 @@ public class RepositoryResourceTest extends ResourceTest {
     }
 
     @Test
-    public void getRepositoriesTest() {
+    public void shouldListAllSeededRepositories() {
         initializeWithPermissions(Permissions.SYSTEM_CONFIGURATION_READ);
 
-        Response response = jersey.target(V1_REPOSITORY).request()
-                .header(X_API_KEY, apiKey)
-                .get(Response.class);
-        Assertions.assertEquals(200, response.getStatus(), 0);
-        Assertions.assertEquals(String.valueOf(17), response.getHeaderString(TOTAL_COUNT_HEADER));
-        JsonArray json = parseJsonArray(response);
-        Assertions.assertNotNull(json);
-        Assertions.assertEquals(17, json.size());
-        for (int i = 0; i < json.size(); i++) {
-            Assertions.assertNotNull(json.getJsonObject(i).getString("type"));
-            Assertions.assertNotNull(json.getJsonObject(i).getString("identifier"));
-            Assertions.assertNotNull(json.getJsonObject(i).getString("url"));
-            Assertions.assertTrue(json.getJsonObject(i).getInt("resolutionOrder") > 0);
-            Assertions.assertTrue(json.getJsonObject(i).getBoolean("enabled"));
-        }
+        final Response response =
+                jersey.target(V1_REPOSITORY).request().header(X_API_KEY, apiKey).get(Response.class);
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.getHeaderString(TOTAL_COUNT_HEADER)).isEqualTo("17");
+        assertThatJson(getPlainTextBody(response)).node("[0]").isEqualTo(/* language=JSON */ """
+                        {
+                          "type": "CARGO",
+                          "identifier": "crates.io",
+                          "url": "https://crates.io",
+                          "resolutionOrder": 1,
+                          "enabled": true,
+                          "internal": false,
+                          "authenticationRequired": false,
+                          "uuid": "${json-unit.any-string}"
+                        }
+                        """);
     }
 
     @Test
-    public void getRepositoriesByTypeTest() {
+    public void shouldListSeededRepositoriesFilteredByType() {
         initializeWithPermissions(Permissions.SYSTEM_CONFIGURATION_READ);
 
-        Response response = jersey.target(V1_REPOSITORY + "/MAVEN").request()
+        final Response response = jersey.target(V1_REPOSITORY + "/MAVEN")
+                .request()
                 .header(X_API_KEY, apiKey)
                 .get(Response.class);
-        Assertions.assertEquals(200, response.getStatus(), 0);
-        Assertions.assertEquals(String.valueOf(5), response.getHeaderString(TOTAL_COUNT_HEADER));
-        JsonArray json = parseJsonArray(response);
-        Assertions.assertNotNull(json);
-        Assertions.assertEquals(5, json.size());
-        for (int i = 0; i < json.size(); i++) {
-            Assertions.assertEquals("MAVEN", json.getJsonObject(i).getString("type"));
-            Assertions.assertFalse(json.getJsonObject(i).getBoolean("authenticationRequired"));
-            Assertions.assertNotNull(json.getJsonObject(i).getString("identifier"));
-            Assertions.assertNotNull(json.getJsonObject(i).getString("url"));
-            Assertions.assertTrue(json.getJsonObject(i).getInt("resolutionOrder") > 0);
-            Assertions.assertTrue(json.getJsonObject(i).getBoolean("enabled"));
-        }
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThat(response.getHeaderString(TOTAL_COUNT_HEADER)).isEqualTo("5");
+        assertThatJson(getPlainTextBody(response)).node("[0]").isEqualTo(/* language=JSON */ """
+                        {
+                          "type": "MAVEN",
+                          "identifier": "atlassian-public",
+                          "url": "https://packages.atlassian.com/content/repositories/atlassian-public/",
+                          "resolutionOrder": 2,
+                          "enabled": true,
+                          "internal": false,
+                          "authenticationRequired": false,
+                          "uuid": "${json-unit.any-string}"
+                        }
+                        """);
     }
 
     @Test
     public void getRepositoryMetaComponentTest() throws Exception {
         final var resolvedAt = new Date();
-        useJdbiHandle(handle -> new PackageMetadataDao(handle).upsertAll(List.of(
-                new PackageMetadata(
+        useJdbiHandle(handle -> new PackageMetadataDao(handle)
+                .upsertAll(List.of(new PackageMetadata(
                         new PackageURL("pkg:maven/org.acme/example-component"),
                         "2.0.0",
                         resolvedAt.toInstant(),
@@ -151,14 +154,17 @@ public class RepositoryResourceTest extends ResourceTest {
         Assertions.assertEquals("org.acme", json.getString("namespace"));
         Assertions.assertEquals("example-component", json.getString("name"));
         Assertions.assertEquals("2.0.0", json.getString("latestVersion"));
-        Assertions.assertEquals(resolvedAt.getTime(), json.getJsonNumber("lastCheck").longValue());
-        Assertions.assertEquals(resolvedAt.getTime(), json.getJsonNumber("latestVersionPublishedAt").longValue());
+        Assertions.assertEquals(
+                resolvedAt.getTime(), json.getJsonNumber("lastCheck").longValue());
+        Assertions.assertEquals(
+                resolvedAt.getTime(),
+                json.getJsonNumber("latestVersionPublishedAt").longValue());
     }
 
     @Test
     public void getRepositoryMetaComponentInvalidRepoTypeTest() throws Exception {
-        useJdbiHandle(handle -> new PackageMetadataDao(handle).upsertAll(List.of(
-                new PackageMetadata(
+        useJdbiHandle(handle -> new PackageMetadataDao(handle)
+                .upsertAll(List.of(new PackageMetadata(
                         new PackageURL("pkg:maven/org.acme/example-component"),
                         "2.0.0",
                         null,
@@ -176,8 +182,8 @@ public class RepositoryResourceTest extends ResourceTest {
 
     @Test
     public void getRepositoryMetaComponentInvalidPurlTest() throws Exception {
-        useJdbiHandle(handle -> new PackageMetadataDao(handle).upsertAll(List.of(
-                new PackageMetadata(
+        useJdbiHandle(handle -> new PackageMetadataDao(handle)
+                .upsertAll(List.of(new PackageMetadata(
                         new PackageURL("pkg:maven/org.acme/example-component"),
                         "2.0.0",
                         null,
@@ -210,8 +216,7 @@ public class RepositoryResourceTest extends ResourceTest {
     public void createRepositoryWithBasicAuthTest() {
         initializeWithPermissions(Permissions.SYSTEM_CONFIGURATION_CREATE);
 
-        Response response = jersey
-                .target(V1_REPOSITORY)
+        Response response = jersey.target(V1_REPOSITORY)
                 .request()
                 .header(X_API_KEY, apiKey)
                 .put(Entity.json(/* language=JSON */ """
@@ -247,8 +252,7 @@ public class RepositoryResourceTest extends ResourceTest {
     public void createRepositoryWithBearerAuthTest() {
         initializeWithPermissions(Permissions.SYSTEM_CONFIGURATION_CREATE);
 
-        Response response = jersey
-                .target(V1_REPOSITORY)
+        Response response = jersey.target(V1_REPOSITORY)
                 .request()
                 .header(X_API_KEY, apiKey)
                 .put(Entity.entity(/* language=JSON */ """
@@ -285,8 +289,7 @@ public class RepositoryResourceTest extends ResourceTest {
         reset(secretManager);
         when(secretManager.getSecretMetadata("nonExistentSecret")).thenReturn(null);
 
-        Response response = jersey
-                .target(V1_REPOSITORY)
+        Response response = jersey.target(V1_REPOSITORY)
                 .request()
                 .header(X_API_KEY, apiKey)
                 .put(Entity.json(/* language=JSON */ """
@@ -302,8 +305,8 @@ public class RepositoryResourceTest extends ResourceTest {
                         }
                         """));
         assertThat(response.getStatus()).isEqualTo(400);
-        assertThat(getPlainTextBody(response)).isEqualTo(
-                "The secret with name \"nonExistentSecret\" could not be found.");
+        assertThat(getPlainTextBody(response))
+                .isEqualTo("The secret with name \"nonExistentSecret\" could not be found.");
     }
 
     @Test
@@ -317,11 +320,14 @@ public class RepositoryResourceTest extends ResourceTest {
         repository.setIdentifier("test");
         repository.setUrl("www.foobar.com");
         repository.setType(RepositoryType.MAVEN);
-        Response response = jersey.target(V1_REPOSITORY).request().header(X_API_KEY, apiKey)
+        Response response = jersey.target(V1_REPOSITORY)
+                .request()
+                .header(X_API_KEY, apiKey)
                 .put(Entity.entity(repository, MediaType.APPLICATION_JSON));
         Assertions.assertEquals(201, response.getStatus());
 
-        response = jersey.target(V1_REPOSITORY).request().header(X_API_KEY, apiKey).get(Response.class);
+        response =
+                jersey.target(V1_REPOSITORY).request().header(X_API_KEY, apiKey).get(Response.class);
         Assertions.assertEquals(200, response.getStatus(), 0);
         Assertions.assertEquals(String.valueOf(18), response.getHeaderString(TOTAL_COUNT_HEADER));
         JsonArray json = parseJsonArray(response);
@@ -333,15 +339,13 @@ public class RepositoryResourceTest extends ResourceTest {
         Assertions.assertTrue(json.getJsonObject(13).getInt("resolutionOrder") > 0);
         Assertions.assertFalse(json.getJsonObject(13).getBoolean("authenticationRequired"));
         Assertions.assertTrue(json.getJsonObject(13).getBoolean("enabled"));
-
     }
 
     @Test
     public void updateRepositoryTest() {
         initializeWithPermissions(Permissions.SYSTEM_CONFIGURATION_CREATE, Permissions.SYSTEM_CONFIGURATION_UPDATE);
 
-        Response response = jersey
-                .target(V1_REPOSITORY)
+        Response response = jersey.target(V1_REPOSITORY)
                 .request()
                 .header(X_API_KEY, apiKey)
                 .put(Entity.json(/* language=JSON */ """
@@ -359,8 +363,7 @@ public class RepositoryResourceTest extends ResourceTest {
         assertThat(response.getStatus()).isEqualTo(201);
         final String uuid = parseJsonObject(response).getString("uuid");
 
-        response = jersey
-                .target(V1_REPOSITORY)
+        response = jersey.target(V1_REPOSITORY)
                 .request()
                 .header(X_API_KEY, apiKey)
                 .post(Entity.json(/* language=JSON */ """
@@ -397,8 +400,7 @@ public class RepositoryResourceTest extends ResourceTest {
     public void updateRepositoryWithNonExistentSecretTest() {
         initializeWithPermissions(Permissions.SYSTEM_CONFIGURATION_CREATE, Permissions.SYSTEM_CONFIGURATION_UPDATE);
 
-        Response response = jersey
-                .target(V1_REPOSITORY)
+        Response response = jersey.target(V1_REPOSITORY)
                 .request()
                 .header(X_API_KEY, apiKey)
                 .put(Entity.json(/* language=JSON */ """
@@ -419,8 +421,7 @@ public class RepositoryResourceTest extends ResourceTest {
         reset(secretManager);
         when(secretManager.getSecretMetadata("nonExistentSecret")).thenReturn(null);
 
-        response = jersey
-                .target(V1_REPOSITORY)
+        response = jersey.target(V1_REPOSITORY)
                 .request()
                 .header(X_API_KEY, apiKey)
                 .post(Entity.json(/* language=JSON */ """
@@ -437,16 +438,15 @@ public class RepositoryResourceTest extends ResourceTest {
                         }
                         """.formatted(uuid)));
         assertThat(response.getStatus()).isEqualTo(400);
-        assertThat(getPlainTextBody(response)).isEqualTo(
-                "The secret with name \"nonExistentSecret\" could not be found.");
+        assertThat(getPlainTextBody(response))
+                .isEqualTo("The secret with name \"nonExistentSecret\" could not be found.");
     }
 
     @Test
     public void createRepositoryAuthRequiredWithoutPasswordTest() {
         initializeWithPermissions(Permissions.SYSTEM_CONFIGURATION_CREATE);
 
-        Response response = jersey
-                .target(V1_REPOSITORY)
+        Response response = jersey.target(V1_REPOSITORY)
                 .request()
                 .header(X_API_KEY, apiKey)
                 .put(Entity.json(/* language=JSON */ """
@@ -461,16 +461,15 @@ public class RepositoryResourceTest extends ResourceTest {
                         }
                         """));
         assertThat(response.getStatus()).isEqualTo(400);
-        assertThat(getPlainTextBody(response)).isEqualTo(
-                "A password secret name is required when authentication is enabled.");
+        assertThat(getPlainTextBody(response))
+                .isEqualTo("A password secret name is required when authentication is enabled.");
     }
 
     @Test
     public void updateRepositoryAuthRequiredWithoutPasswordTest() {
         initializeWithPermissions(Permissions.SYSTEM_CONFIGURATION_CREATE, Permissions.SYSTEM_CONFIGURATION_UPDATE);
 
-        Response response = jersey
-                .target(V1_REPOSITORY)
+        Response response = jersey.target(V1_REPOSITORY)
                 .request()
                 .header(X_API_KEY, apiKey)
                 .put(Entity.json(/* language=JSON */ """
@@ -488,8 +487,7 @@ public class RepositoryResourceTest extends ResourceTest {
         assertThat(response.getStatus()).isEqualTo(201);
         final String uuid = parseJsonObject(response).getString("uuid");
 
-        response = jersey
-                .target(V1_REPOSITORY)
+        response = jersey.target(V1_REPOSITORY)
                 .request()
                 .header(X_API_KEY, apiKey)
                 .post(Entity.json(/* language=JSON */ """
@@ -505,16 +503,15 @@ public class RepositoryResourceTest extends ResourceTest {
                         }
                         """.formatted(uuid)));
         assertThat(response.getStatus()).isEqualTo(400);
-        assertThat(getPlainTextBody(response)).isEqualTo(
-                "A password secret name is required when authentication is enabled.");
+        assertThat(getPlainTextBody(response))
+                .isEqualTo("A password secret name is required when authentication is enabled.");
     }
 
     @Test
     public void updateRepositoryEnableAuthWithoutPasswordTest() {
         initializeWithPermissions(Permissions.SYSTEM_CONFIGURATION_CREATE, Permissions.SYSTEM_CONFIGURATION_UPDATE);
 
-        Response response = jersey
-                .target(V1_REPOSITORY)
+        Response response = jersey.target(V1_REPOSITORY)
                 .request()
                 .header(X_API_KEY, apiKey)
                 .put(Entity.json(/* language=JSON */ """
@@ -530,8 +527,7 @@ public class RepositoryResourceTest extends ResourceTest {
         assertThat(response.getStatus()).isEqualTo(201);
         final String uuid = parseJsonObject(response).getString("uuid");
 
-        response = jersey
-                .target(V1_REPOSITORY)
+        response = jersey.target(V1_REPOSITORY)
                 .request()
                 .header(X_API_KEY, apiKey)
                 .post(Entity.json(/* language=JSON */ """
@@ -547,8 +543,8 @@ public class RepositoryResourceTest extends ResourceTest {
                         }
                         """.formatted(uuid)));
         assertThat(response.getStatus()).isEqualTo(400);
-        assertThat(getPlainTextBody(response)).isEqualTo(
-                "A password secret name is required when authentication is enabled.");
+        assertThat(getPlainTextBody(response))
+                .isEqualTo("A password secret name is required when authentication is enabled.");
     }
 
     @Test
@@ -561,11 +557,14 @@ public class RepositoryResourceTest extends ResourceTest {
         repository.setIdentifier("test");
         repository.setUrl("www.foobar.com");
         repository.setType(RepositoryType.MAVEN);
-        Response response = jersey.target(V1_REPOSITORY).request().header(X_API_KEY, apiKey)
+        Response response = jersey.target(V1_REPOSITORY)
+                .request()
+                .header(X_API_KEY, apiKey)
                 .put(Entity.entity(repository, MediaType.APPLICATION_JSON));
         Assertions.assertEquals(201, response.getStatus());
         try (QueryManager qm = new QueryManager()) {
-            List<Repository> repositoryList = qm.getRepositories(RepositoryType.MAVEN).getList(Repository.class);
+            List<Repository> repositoryList =
+                    qm.getRepositories(RepositoryType.MAVEN).getList(Repository.class);
             for (Repository repository1 : repositoryList) {
                 if (repository1.getIdentifier().equals("test")) {
                     Assertions.assertFalse(repository1.isAuthenticationRequired());
@@ -580,6 +579,5 @@ public class RepositoryResourceTest extends ResourceTest {
                 }
             }
         }
-
     }
 }

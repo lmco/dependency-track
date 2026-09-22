@@ -27,26 +27,23 @@ import io.smallrye.config.SmallRyeConfigBuilder;
 import org.dependencytrack.common.datasource.DataSourceRegistry;
 import org.dependencytrack.common.pagination.Page;
 import org.dependencytrack.common.pagination.SimplePageTokenEncoder;
-import org.dependencytrack.migration.MigrationExecutor;
 import org.dependencytrack.secret.management.ListSecretsRequest;
 import org.dependencytrack.secret.management.SecretAlreadyExistsException;
 import org.dependencytrack.secret.management.SecretManager;
+import org.dependencytrack.testing.database.TestDatabaseExtension;
 import org.eclipse.microprofile.config.Config;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.api.io.TempDir;
-import org.postgresql.ds.PGSimpleDataSource;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
@@ -60,36 +57,30 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 
-@Testcontainers
 class DatabaseSecretManagerTest {
 
-    @Container
-    private static final PostgreSQLContainer postgresContainer =
-            new PostgreSQLContainer(DockerImageName.parse("postgres:14-alpine"));
+    @RegisterExtension
+    static final TestDatabaseExtension database = new TestDatabaseExtension().withoutTruncation();
 
     @TempDir
     private static Path tempDir;
+
     private static Path kekKeysetPath;
 
     private static DataSourceRegistry dataSourceRegistry;
     private static SecretManager secretManager;
 
     @BeforeAll
-    static void beforeAll() throws Exception {
-        final var dataSource = new PGSimpleDataSource();
-        dataSource.setUrl(postgresContainer.getJdbcUrl());
-        dataSource.setUser(postgresContainer.getUsername());
-        dataSource.setPassword(postgresContainer.getPassword());
-
-        new MigrationExecutor(dataSource).execute();
+    static void beforeAll() {
+        database.truncateTables();
 
         kekKeysetPath = tempDir.resolve("kek-keyset.json");
 
         final Config config = new SmallRyeConfigBuilder()
                 .withDefaultValues(Map.ofEntries(
-                        Map.entry("dt.datasource.secrets.url", postgresContainer.getJdbcUrl()),
-                        Map.entry("dt.datasource.secrets.username", postgresContainer.getUsername()),
-                        Map.entry("dt.datasource.secrets.password", postgresContainer.getPassword()),
+                        Map.entry("dt.datasource.secrets.url", database.jdbcUrl()),
+                        Map.entry("dt.datasource.secrets.username", database.username()),
+                        Map.entry("dt.datasource.secrets.password", database.password()),
                         Map.entry("dt.secret-management.database.datasource.name", "secrets"),
                         Map.entry("dt.secret-management.database.kek-keyset.path", kekKeysetPath.toString()),
                         Map.entry("dt.secret-management.database.kek-keyset.create-if-missing", "true")))
@@ -97,14 +88,15 @@ class DatabaseSecretManagerTest {
 
         dataSourceRegistry = new DataSourceRegistry(config);
 
-        secretManager = new DatabaseSecretManagerProvider(dataSourceRegistry)
-                .create(config, new SimplePageTokenEncoder());
+        secretManager =
+                new DatabaseSecretManagerProvider(dataSourceRegistry).create(config, new SimplePageTokenEncoder());
     }
 
     @AfterEach
     void afterEach() throws Exception {
-        try (final Connection connection = postgresContainer.createConnection("");
-             final Statement statement = connection.createStatement()) {
+        try (final Connection connection =
+                        DriverManager.getConnection(database.jdbcUrl(), database.username(), database.password());
+                final Statement statement = connection.createStatement()) {
             statement.execute("TRUNCATE TABLE \"SECRET\"");
         }
     }
@@ -151,8 +143,7 @@ class DatabaseSecretManagerTest {
 
         @Test
         void shouldNotThrowWhenDescriptionIsNull() {
-            assertThatNoException()
-                    .isThrownBy(() -> secretManager.createSecret("name", null, "secret"));
+            assertThatNoException().isThrownBy(() -> secretManager.createSecret("name", null, "secret"));
         }
 
         @Test
@@ -169,7 +160,6 @@ class DatabaseSecretManagerTest {
             assertThatExceptionOfType(SecretAlreadyExistsException.class)
                     .isThrownBy(() -> secretManager.createSecret("name", "description", "secret"));
         }
-
     }
 
     @Nested
@@ -222,7 +212,6 @@ class DatabaseSecretManagerTest {
             assertThatExceptionOfType(NoSuchElementException.class)
                     .isThrownBy(() -> secretManager.updateSecret("name", "description", "secret"));
         }
-
     }
 
     @Nested
@@ -242,7 +231,6 @@ class DatabaseSecretManagerTest {
             assertThatExceptionOfType(NoSuchElementException.class)
                     .isThrownBy(() -> secretManager.deleteSecret("name"));
         }
-
     }
 
     @Nested
@@ -258,7 +246,6 @@ class DatabaseSecretManagerTest {
         void shouldReturnNullIfNotExists() {
             assertThat(secretManager.getSecretValue("name")).isNull();
         }
-
     }
 
     @Nested
@@ -293,7 +280,6 @@ class DatabaseSecretManagerTest {
         void shouldReturnNullIfNotExists() {
             assertThat(secretManager.getSecretMetadata("doesNotExist")).isNull();
         }
-
     }
 
     @Nested
@@ -337,17 +323,14 @@ class DatabaseSecretManagerTest {
             secretManager.createSecret("beta", null, "secret");
             secretManager.createSecret("gamma", null, "secret");
 
-            final var firstPage = secretManager.listSecretMetadata(
-                    new ListSecretsRequest()
-                            .withLimit(2));
+            final var firstPage = secretManager.listSecretMetadata(new ListSecretsRequest().withLimit(2));
             assertThat(firstPage.items()).extracting("name").containsExactly("alpha", "beta");
             assertThat(firstPage.nextPageToken()).isNotNull();
             assertThat(firstPage.totalCount().value()).isEqualTo(3);
 
-            final var secondPage = secretManager.listSecretMetadata(
-                    new ListSecretsRequest()
-                            .withPageToken(firstPage.nextPageToken())
-                            .withLimit(2));
+            final var secondPage = secretManager.listSecretMetadata(new ListSecretsRequest()
+                    .withPageToken(firstPage.nextPageToken())
+                    .withLimit(2));
             assertThat(secondPage.items()).extracting("name").containsExactly("gamma");
             assertThat(secondPage.nextPageToken()).isNull();
             assertThat(secondPage.totalCount().value()).isEqualTo(3);
@@ -359,9 +342,7 @@ class DatabaseSecretManagerTest {
             secretManager.createSecret("beta", null, "secret");
             secretManager.createSecret("ALPHABET", null, "secret");
 
-            final var page = secretManager.listSecretMetadata(
-                    new ListSecretsRequest()
-                            .withSearchText("alph"));
+            final var page = secretManager.listSecretMetadata(new ListSecretsRequest().withSearchText("alph"));
             assertThat(page.items()).extracting("name").containsExactly("ALPHABET", "alpha");
             assertThat(page.nextPageToken()).isNull();
             assertThat(page.totalCount().value()).isEqualTo(2);
@@ -375,23 +356,19 @@ class DatabaseSecretManagerTest {
             secretManager.createSecret("bar1", null, "secret");
 
             final var firstPage = secretManager.listSecretMetadata(
-                    new ListSecretsRequest()
-                            .withSearchText("foo")
-                            .withLimit(2));
+                    new ListSecretsRequest().withSearchText("foo").withLimit(2));
             assertThat(firstPage.items()).extracting("name").containsExactly("foo1", "foo2");
             assertThat(firstPage.nextPageToken()).isNotNull();
             assertThat(firstPage.totalCount().value()).isEqualTo(3);
 
-            final var secondPage = secretManager.listSecretMetadata(
-                    new ListSecretsRequest()
-                            .withSearchText("foo")
-                            .withPageToken(firstPage.nextPageToken())
-                            .withLimit(2));
+            final var secondPage = secretManager.listSecretMetadata(new ListSecretsRequest()
+                    .withSearchText("foo")
+                    .withPageToken(firstPage.nextPageToken())
+                    .withLimit(2));
             assertThat(secondPage.items()).extracting("name").containsExactly("foo3");
             assertThat(secondPage.nextPageToken()).isNull();
             assertThat(secondPage.totalCount().value()).isEqualTo(3);
         }
-
     }
 
     @Nested
@@ -404,27 +381,23 @@ class DatabaseSecretManagerTest {
             assertThat(secretManager.getSecretValue("name")).isEqualTo("secret");
 
             // Add a new KEK and make it the primary key in the set.
-            final KeysetHandle kekKeysetHandle =
-                    TinkJsonProtoKeysetFormat.parseKeyset(
-                            Files.readString(kekKeysetPath),
-                            InsecureSecretKeyAccess.get());
+            final KeysetHandle kekKeysetHandle = TinkJsonProtoKeysetFormat.parseKeyset(
+                    Files.readString(kekKeysetPath), InsecureSecretKeyAccess.get());
             final var kekKeysetManager = KeysetManager.withKeysetHandle(kekKeysetHandle);
             kekKeysetManager.addNewKey(AeadKeyTemplates.AES128_GCM, /* asPrimary */ true);
 
             // Write the new KEK keyset to a separate file.
             final Path newKekKeysetFilePath = tempDir.resolve("new-kek-keyset.json");
-            final String serializedKekKeyset =
-                    TinkJsonProtoKeysetFormat.serializeKeyset(
-                            kekKeysetManager.getKeysetHandle(),
-                            InsecureSecretKeyAccess.get());
+            final String serializedKekKeyset = TinkJsonProtoKeysetFormat.serializeKeyset(
+                    kekKeysetManager.getKeysetHandle(), InsecureSecretKeyAccess.get());
             Files.writeString(newKekKeysetFilePath, serializedKekKeyset);
 
             // Construct a new secret manager that uses the new KEK keyset.
             final Config config = new SmallRyeConfigBuilder()
                     .withDefaultValues(Map.ofEntries(
-                            Map.entry("dt.datasource.secrets.url", postgresContainer.getJdbcUrl()),
-                            Map.entry("dt.datasource.secrets.username", postgresContainer.getUsername()),
-                            Map.entry("dt.datasource.secrets.password", postgresContainer.getPassword()),
+                            Map.entry("dt.datasource.secrets.url", database.jdbcUrl()),
+                            Map.entry("dt.datasource.secrets.username", database.username()),
+                            Map.entry("dt.datasource.secrets.password", database.password()),
                             Map.entry("dt.secret-management.database.datasource.name", "secrets"),
                             Map.entry("dt.secret-management.database.kek-keyset.path", newKekKeysetFilePath.toString()),
                             Map.entry("dt.secret-management.database.kek-keyset.create-if-missing", "false")))
@@ -446,22 +419,17 @@ class DatabaseSecretManagerTest {
                     .isThrownBy(() -> secretManager.getSecretValue("foo"))
                     .withMessage("Failed to decrypt secret value");
         }
-
     }
 
     private record SecretRecord(
-            String name,
-            String description,
-            String value,
-            Timestamp createdAt,
-            Timestamp updatedAt) {
-    }
+            String name, String description, String value, Timestamp createdAt, Timestamp updatedAt) {}
 
     private List<SecretRecord> getAllSecrets() throws Exception {
         final var records = new ArrayList<SecretRecord>();
 
-        try (final Connection connection = postgresContainer.createConnection("");
-             final PreparedStatement ps = connection.prepareStatement("""
+        try (final Connection connection =
+                        DriverManager.getConnection(database.jdbcUrl(), database.username(), database.password());
+                final PreparedStatement ps = connection.prepareStatement("""
                      SELECT *
                        FROM "SECRET"
                       ORDER BY "NAME"
@@ -479,5 +447,4 @@ class DatabaseSecretManagerTest {
 
         return records;
     }
-
 }

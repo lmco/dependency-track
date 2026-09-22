@@ -18,10 +18,9 @@
  */
 package org.dependencytrack.plugin;
 
-import jakarta.servlet.ServletContextEvent;
-import jakarta.servlet.ServletContextListener;
 import org.dependencytrack.cache.api.CacheManager;
 import org.dependencytrack.common.HttpClient;
+import org.dependencytrack.kevdatasource.api.KevDataSource;
 import org.dependencytrack.notification.api.publishing.NotificationPublisher;
 import org.dependencytrack.persistence.jdbi.JdbiFactory;
 import org.dependencytrack.pkgmetadata.resolution.api.PackageMetadataResolver;
@@ -35,6 +34,9 @@ import org.eclipse.microprofile.config.ConfigProvider;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import jakarta.servlet.ServletContextEvent;
+import jakarta.servlet.ServletContextListener;
 
 import java.util.Collection;
 import java.util.List;
@@ -72,6 +74,7 @@ public class PluginInitializer implements ServletContextListener {
         requireNonNull(secretManager, "secretManager has not been initialized");
 
         final var extensionPoints = List.of(
+                KevDataSource.class,
                 NotificationPublisher.class,
                 PackageMetadataResolver.class,
                 VulnAnalyzer.class,
@@ -86,10 +89,9 @@ public class PluginInitializer implements ServletContextListener {
                 extensionPoints);
 
         LOGGER.info("Discovering plugins");
-        final Collection<Plugin> plugins =
-                ServiceLoader.load(Plugin.class).stream()
-                        .map(ServiceLoader.Provider::get)
-                        .toList();
+        final Collection<Plugin> plugins = ServiceLoader.load(Plugin.class).stream()
+                .map(ServiceLoader.Provider::get)
+                .toList();
         for (final Plugin plugin : plugins) {
             LOGGER.debug("Discovered plugin {}", plugin.getClass().getName());
         }
@@ -109,5 +111,4 @@ public class PluginInitializer implements ServletContextListener {
 
         event.getServletContext().removeAttribute(PluginManager.class.getName());
     }
-
 }

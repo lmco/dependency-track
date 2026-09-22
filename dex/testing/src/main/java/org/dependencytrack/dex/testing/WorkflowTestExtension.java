@@ -30,8 +30,6 @@ import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.extension.AfterEachCallback;
 import org.junit.jupiter.api.extension.BeforeEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
-import org.postgresql.ds.PGSimpleDataSource;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -66,10 +64,6 @@ public final class WorkflowTestExtension implements BeforeEachCallback, AfterEac
         this.dataSource = dataSource;
     }
 
-    public WorkflowTestExtension(final PostgreSQLContainer postgresContainer) {
-        this(createDataSource(postgresContainer));
-    }
-
     @Override
     public void beforeEach(ExtensionContext context) {
         new MigrationExecutor(dataSource).execute();
@@ -79,6 +73,7 @@ public final class WorkflowTestExtension implements BeforeEachCallback, AfterEac
         // Reduce buffer flush, poll intervals, backoffs, and leader election
         // check interval to make tests more responsive.
         engineConfig.leaderElection().setLeaseCheckInterval(Duration.ofSeconds(5));
+        engineConfig.setActivityHeartbeatInterval(Duration.ofMillis(500));
         engineConfig.activityTaskHeartbeatBuffer().setFlushInterval(Duration.ofMillis(10));
         engineConfig.externalEventBuffer().setFlushInterval(Duration.ofMillis(10));
         engineConfig.taskEventBuffer().setFlushInterval(Duration.ofMillis(10));
@@ -116,9 +111,7 @@ public final class WorkflowTestExtension implements BeforeEachCallback, AfterEac
     }
 
     public @Nullable WorkflowRun awaitRunStatus(
-            final UUID runId,
-            final WorkflowRunStatus expectedStatus,
-            final Duration timeout) {
+            final UUID runId, final WorkflowRunStatus expectedStatus, final Duration timeout) {
         return await("Workflow run status to become " + expectedStatus)
                 .atMost(timeout)
                 .failFast(() -> {
@@ -135,11 +128,12 @@ public final class WorkflowTestExtension implements BeforeEachCallback, AfterEac
                         assertThat(expectedStatus)
                                 .as("If expected and actual status are terminal, they must be equal")
                                 .withFailMessage(() -> {
-                                    var message = "Expected status to be %s, but was %s".formatted(
-                                            expectedStatus, run.status());
+                                    var message = "Expected status to be %s, but was %s"
+                                            .formatted(expectedStatus, run.status());
                                     if (run.failure() != null) {
-                                        message += " (failure: %s)".formatted(
-                                                DebugFormat.singleLine().toString(run.failure()));
+                                        message += " (failure: %s)"
+                                                .formatted(
+                                                        DebugFormat.singleLine().toString(run.failure()));
                                     }
                                     return message;
                                 })
@@ -155,7 +149,7 @@ public final class WorkflowTestExtension implements BeforeEachCallback, AfterEac
 
     private static void truncateTables(final DataSource dataSource) {
         try (final Connection connection = dataSource.getConnection();
-             final java.sql.Statement statement = connection.createStatement()) {
+                final java.sql.Statement statement = connection.createStatement()) {
             statement.execute("""
                     DO $$ DECLARE
                         r RECORD;
@@ -191,13 +185,4 @@ public final class WorkflowTestExtension implements BeforeEachCallback, AfterEac
             throw new IllegalStateException("Failed to truncate tables", e);
         }
     }
-
-    private static DataSource createDataSource(final PostgreSQLContainer postgresContainer) {
-        final var dataSource = new PGSimpleDataSource();
-        dataSource.setUrl(postgresContainer.getJdbcUrl());
-        dataSource.setUser(postgresContainer.getUsername());
-        dataSource.setPassword(postgresContainer.getPassword());
-        return dataSource;
-    }
-
 }

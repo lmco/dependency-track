@@ -33,7 +33,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-
 /**
  * The Finding object is a metadata/value object that combines data from multiple tables. The object can
  * only be queried on, not updated or deleted. Modifications to data in the Finding object need to be made
@@ -89,16 +88,20 @@ public final class Finding implements Serializable {
         optValue(vulnerability, "owaspRRVector", findingRow.owaspRRVector());
         optValue(vulnerability, "epssScore", findingRow.epssScore());
         optValue(vulnerability, "epssPercentile", findingRow.epssPercentile());
+        optValue(vulnerability, "isKev", findingRow.kev());
         optValue(vulnerability, "cwes", getCwes(findingRow.cwes()));
         addVulnerabilityAliases(findingRow.vulnAliasesJson());
 
         optValue(attribution, "analyzerIdentity", findingRow.analyzerIdentity());
-        optValue(attribution, "attributedOn", Date.from(findingRow.attributed_on()));
+        if (findingRow.attributed_on() != null) {
+            optValue(attribution, "attributedOn", Date.from(findingRow.attributed_on()));
+        }
         optValue(attribution, "alternateIdentifier", findingRow.alt_id());
         optValue(attribution, "referenceUrl", findingRow.reference_url());
 
         optValue(analysis, "state", findingRow.analysisState());
         optValue(analysis, "isSuppressed", findingRow.suppressed(), false);
+        optValue(analysis, "detail", findingRow.analysisDetail());
         if (findingRow.vulnPublished() != null) {
             optValue(vulnerability, "published", Date.from(findingRow.vulnPublished()));
         }
@@ -183,6 +186,6 @@ public final class Finding implements Serializable {
                 uniqueAliases.add(map);
             }
         }
-        vulnerability.put("aliases",uniqueAliases);
+        vulnerability.put("aliases", uniqueAliases);
     }
 }

@@ -25,13 +25,17 @@ import org.dependencytrack.notification.api.templating.RenderedNotificationTempl
 import org.dependencytrack.notification.proto.v1.Notification;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
+import java.net.http.HttpRequest.BodyPublisher;
 import java.net.http.HttpRequest.BodyPublishers;
+import java.net.http.HttpResponse;
 import java.net.http.HttpResponse.BodyHandlers;
 import java.time.Duration;
 
 import static java.util.Objects.requireNonNull;
+import static org.dependencytrack.notification.publishing.http.HttpNotificationResponses.ensureSuccessful2xxResponse;
 
 /**
  * @since 5.0.0
@@ -48,15 +52,26 @@ final class WebhookNotificationPublisher implements NotificationPublisher {
     public void publish(NotificationPublishContext ctx, Notification notification) throws IOException {
         final var ruleConfig = ctx.ruleConfig(WebhookNotificationPublisherRuleConfigV1.class);
 
-        final RenderedNotificationTemplate renderedTemplate = ctx.templateRenderer().render(notification);
-        if (renderedTemplate == null) {
-            throw new IllegalStateException("No template configured");
+        final String mimeType;
+        final BodyPublisher body;
+        if (Boolean.TRUE.equals(ruleConfig.getPublishProtobuf())) {
+            // https://protobuf.dev/reference/protobuf/mime-types/
+            mimeType = "application/protobuf";
+            body = BodyPublishers.ofByteArray(notification.toByteArray());
+        } else {
+            final RenderedNotificationTemplate renderedTemplate =
+                    ctx.templateRenderer().render(notification);
+            if (renderedTemplate == null) {
+                throw new IllegalStateException("No template configured");
+            }
+
+            mimeType = renderedTemplate.mimeType();
+            body = BodyPublishers.ofString(renderedTemplate.content());
         }
 
-        final var requestBuilder = HttpRequest
-                .newBuilder(ruleConfig.getDestinationUrl())
-                .header("Content-Type", renderedTemplate.mimeType())
-                .POST(BodyPublishers.ofString(renderedTemplate.content()))
+        final var requestBuilder = HttpRequest.newBuilder(ruleConfig.getDestinationUrl())
+                .header("Content-Type", mimeType)
+                .POST(body)
                 .timeout(Duration.ofSeconds(10));
 
         final String authHeaderName = ruleConfig.getAuthHeaderName();
@@ -66,12 +81,9 @@ final class WebhookNotificationPublisher implements NotificationPublisher {
         }
 
         try {
-            final var response = httpClient.send(requestBuilder.build(), BodyHandlers.discarding());
-            RetryablePublishException.throwIfRetryableHttpError(response);
-            final int statusCode = response.statusCode();
-            if (statusCode < 200 || statusCode > 299) {
-                throw new IllegalStateException("Request failed with unexpected response code: " + statusCode);
-            }
+            final HttpResponse<InputStream> response =
+                    httpClient.send(requestBuilder.build(), BodyHandlers.ofInputStream());
+            ensureSuccessful2xxResponse(response);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RetryablePublishException("Interrupted while sending request", e);
@@ -80,5 +92,4 @@ final class WebhookNotificationPublisher implements NotificationPublisher {
             throw e;
         }
     }
-
 }

@@ -21,10 +21,6 @@ package org.dependencytrack.resources.v1;
 import alpine.server.filters.ApiFilter;
 import alpine.server.filters.AuthFeature;
 import io.smallrye.config.SmallRyeConfigBuilder;
-import jakarta.json.JsonObject;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.Response;
 import net.javacrumbs.jsonunit.core.Option;
 import org.dependencytrack.JerseyTestExtension;
 import org.dependencytrack.ResourceTest;
@@ -53,6 +49,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.mockito.ArgumentCaptor;
 
+import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+
 import java.net.http.HttpClient;
 import java.util.Collection;
 import java.util.List;
@@ -73,17 +73,21 @@ class NotificationPublisherResourceTest extends ResourceTest {
     private static PluginManager pluginManager;
 
     @RegisterExtension
-    static JerseyTestExtension jersey = new JerseyTestExtension(
-            new ResourceConfig(NotificationPublisherResource.class)
-                    .register(ApiFilter.class)
-                    .register(AuthFeature.class)
-                    .register(new AbstractBinder() {
-                        @Override
-                        protected void configure() {
-                            bindFactory(() -> pluginManager).to(PluginManager.class);
-                            bindFactory(() -> DEX_ENGINE_MOCK).to(DexEngine.class);
-                        }
-                    }));
+    static JerseyTestExtension jersey = new JerseyTestExtension(new ResourceConfig(NotificationPublisherResource.class)
+            .register(ApiFilter.class)
+            .register(AuthFeature.class)
+            .register(new AbstractBinder() {
+                @Override
+                protected void configure() {
+                    bindFactory(() -> pluginManager).to(PluginManager.class);
+                    bindFactory(() -> DEX_ENGINE_MOCK).to(DexEngine.class);
+                }
+            }));
+
+    @BeforeEach
+    void resetDexEngineMock() {
+        reset(DEX_ENGINE_MOCK);
+    }
 
     @BeforeEach
     void resetDexEngineMock() {
@@ -115,7 +119,8 @@ class NotificationPublisherResourceTest extends ResourceTest {
 
         new DefaultNotificationPublisherInitializer().seedDefaultPublishers(pluginManager);
 
-        final Response response = jersey.target(V1_NOTIFICATION_PUBLISHER).request()
+        final Response response = jersey.target(V1_NOTIFICATION_PUBLISHER)
+                .request()
                 .header(X_API_KEY, apiKey)
                 .get();
         assertThat(response.getStatus()).isEqualTo(200);
@@ -167,8 +172,8 @@ class NotificationPublisherResourceTest extends ResourceTest {
                             "uuid": "${json-unit.any-string}"
                           },
                           {
-                            "name": "Msteams",
-                            "description": "Default Msteams publisher",
+                            "name": "Microsoft Teams",
+                            "description": "Default Microsoft Teams publisher",
                             "extensionName": "msteams",
                             "template": "${json-unit.any-string}",
                             "templateMimeType": "${json-unit.any-string}",
@@ -210,7 +215,8 @@ class NotificationPublisherResourceTest extends ResourceTest {
     void createNotificationPublisherTest() {
         initializeWithPermissions(Permissions.SYSTEM_CONFIGURATION_CREATE);
 
-        final Response response = jersey.target(V1_NOTIFICATION_PUBLISHER).request()
+        final Response response = jersey.target(V1_NOTIFICATION_PUBLISHER)
+                .request()
                 .header(X_API_KEY, apiKey)
                 .put(Entity.json(/* language=JSON */ """
                         {
@@ -241,7 +247,8 @@ class NotificationPublisherResourceTest extends ResourceTest {
 
         new DefaultNotificationPublisherInitializer().seedDefaultPublishers(pluginManager);
 
-        final Response response = jersey.target(V1_NOTIFICATION_PUBLISHER).request()
+        final Response response = jersey.target(V1_NOTIFICATION_PUBLISHER)
+                .request()
                 .header(X_API_KEY, apiKey)
                 .put(Entity.json(/* language=JSON */ """
                         {
@@ -252,33 +259,33 @@ class NotificationPublisherResourceTest extends ResourceTest {
                         }
                         """));
         assertThat(response.getStatus()).isEqualTo(409);
-        assertThat(getPlainTextBody(response)).isEqualTo(
-                "The notification with the name Slack already exist");
+        assertThat(getPlainTextBody(response)).isEqualTo("The notification with the name Slack already exist");
     }
 
     @Test
     void updateNotificationPublisherTest() {
         initializeWithPermissions(Permissions.SYSTEM_CONFIGURATION_UPDATE);
 
-        NotificationPublisher notificationPublisher = qm.createNotificationPublisher(
-                "Example Publisher", "Publisher description",
-                "slack", "template", "text/html",
-                false
-        );
+        final NotificationPublisher notificationPublisher = qm.createNotificationPublisher(
+                "Example Publisher", "Publisher description", "slack", "template", "text/html", false);
         notificationPublisher.setName("Updated Publisher name");
-        Response response = jersey.target(V1_NOTIFICATION_PUBLISHER).request()
+        final Response response = jersey.target(V1_NOTIFICATION_PUBLISHER)
+                .request()
                 .header(X_API_KEY, apiKey)
                 .post(Entity.entity(notificationPublisher, MediaType.APPLICATION_JSON));
-        Assertions.assertEquals(200, response.getStatus(), 0);
-        JsonObject json = parseJsonObject(response);
-        Assertions.assertNotNull(json);
-        Assertions.assertEquals("Updated Publisher name", json.getString("name"));
-        Assertions.assertFalse(json.getBoolean("defaultPublisher"));
-        Assertions.assertEquals("Publisher description", json.getString("description"));
-        Assertions.assertEquals("template", json.getString("template"));
-        Assertions.assertEquals("text/html", json.getString("templateMimeType"));
-        Assertions.assertEquals(notificationPublisher.getUuid().toString(), json.getString("uuid"));
-        Assertions.assertEquals("slack", json.getString("extensionName"));
+        assertThat(response.getStatus()).isEqualTo(200);
+        assertThatJson(getPlainTextBody(response))
+                .isEqualTo(/* language=JSON */ """
+                {
+                  "name": "Updated Publisher name",
+                  "description": "Publisher description",
+                  "extensionName": "slack",
+                  "template": "template",
+                  "templateMimeType": "text/html",
+                  "defaultPublisher": false,
+                  "uuid": "%s"
+                }
+                """.formatted(notificationPublisher.getUuid()));
     }
 
     @Test
@@ -286,13 +293,11 @@ class NotificationPublisherResourceTest extends ResourceTest {
         initializeWithPermissions(Permissions.SYSTEM_CONFIGURATION_UPDATE);
 
         NotificationPublisher notificationPublisher = qm.createNotificationPublisher(
-                "Example Publisher", "Publisher description",
-                "slack", "template", "text/html",
-                false
-        );
+                "Example Publisher", "Publisher description", "slack", "template", "text/html", false);
         notificationPublisher = qm.detach(NotificationPublisher.class, notificationPublisher.getId());
         notificationPublisher.setUuid(UUID.randomUUID());
-        Response response = jersey.target(V1_NOTIFICATION_PUBLISHER).request()
+        Response response = jersey.target(V1_NOTIFICATION_PUBLISHER)
+                .request()
                 .header(X_API_KEY, apiKey)
                 .post(Entity.entity(notificationPublisher, MediaType.APPLICATION_JSON));
         Assertions.assertEquals(404, response.getStatus(), 0);
@@ -318,12 +323,12 @@ class NotificationPublisherResourceTest extends ResourceTest {
                 slackPublisher.getTemplateMimeType(),
                 slackPublisher.getUuid());
 
-        Response response = jersey.target(V1_NOTIFICATION_PUBLISHER).request()
+        Response response = jersey.target(V1_NOTIFICATION_PUBLISHER)
+                .request()
                 .header(X_API_KEY, apiKey)
                 .post(Entity.json(updateRequest));
         assertThat(response.getStatus()).isEqualTo(400);
-        assertThat(getPlainTextBody(response)).isEqualTo(
-                "The modification of a default publisher is forbidden");
+        assertThat(getPlainTextBody(response)).isEqualTo("The modification of a default publisher is forbidden");
     }
 
     @Test
@@ -333,14 +338,10 @@ class NotificationPublisherResourceTest extends ResourceTest {
         new DefaultNotificationPublisherInitializer().seedDefaultPublishers(pluginManager);
 
         final NotificationPublisher publisher = qm.createNotificationPublisher(
-                "Example Publisher",
-                "description",
-                "slack",
-                "template",
-                "text/html",
-                false);
+                "Example Publisher", "description", "slack", "template", "text/html", false);
 
-        Response response = jersey.target(V1_NOTIFICATION_PUBLISHER).request()
+        Response response = jersey.target(V1_NOTIFICATION_PUBLISHER)
+                .request()
                 .header(X_API_KEY, apiKey)
                 .post(Entity.json(/* language=JSON */ """
                         {
@@ -353,8 +354,7 @@ class NotificationPublisherResourceTest extends ResourceTest {
                         }
                         """.formatted(publisher.getUuid())));
         assertThat(response.getStatus()).isEqualTo(409);
-        assertThat(getPlainTextBody(response)).isEqualTo(
-                "An existing publisher with the name 'Slack' already exist");
+        assertThat(getPlainTextBody(response)).isEqualTo("An existing publisher with the name 'Slack' already exist");
     }
 
     @Test
@@ -379,8 +379,7 @@ class NotificationPublisherResourceTest extends ResourceTest {
                 .header(X_API_KEY, apiKey)
                 .post(Entity.json(updateRequest));
         assertThat(response.getStatus()).isEqualTo(400);
-        assertThat(getPlainTextBody(response)).isEqualTo(
-                "No extension with name 'unknown' exists");
+        assertThat(getPlainTextBody(response)).isEqualTo("No extension with name 'unknown' exists");
     }
 
     @Test
@@ -388,11 +387,9 @@ class NotificationPublisherResourceTest extends ResourceTest {
         initializeWithPermissions(Permissions.SYSTEM_CONFIGURATION_DELETE);
 
         NotificationPublisher publisher = qm.createNotificationPublisher(
-                "Example Publisher", "Publisher description",
-                "slack", "template", "text/html",
-                false
-        );
-        Response response = jersey.target(V1_NOTIFICATION_PUBLISHER + "/" + publisher.getUuid()).request()
+                "Example Publisher", "Publisher description", "slack", "template", "text/html", false);
+        Response response = jersey.target(V1_NOTIFICATION_PUBLISHER + "/" + publisher.getUuid())
+                .request()
                 .header(X_API_KEY, apiKey)
                 .delete();
         Assertions.assertEquals(204, response.getStatus(), 0);
@@ -404,13 +401,13 @@ class NotificationPublisherResourceTest extends ResourceTest {
         initializeWithPermissions(Permissions.SYSTEM_CONFIGURATION_DELETE);
 
         NotificationPublisher publisher = qm.createNotificationPublisher(
-                "Example Publisher", "Publisher description",
-                "slack", "template", "text/html",
-                false
-        );
-        NotificationRule firstRule = qm.createNotificationRule("Example Rule 1", NotificationScope.PORTFOLIO, NotificationLevel.INFORMATIONAL, publisher);
-        NotificationRule secondRule = qm.createNotificationRule("Example Rule 2", NotificationScope.PORTFOLIO, NotificationLevel.INFORMATIONAL, publisher);
-        Response response = jersey.target(V1_NOTIFICATION_PUBLISHER + "/" + publisher.getUuid()).request()
+                "Example Publisher", "Publisher description", "slack", "template", "text/html", false);
+        NotificationRule firstRule = qm.createNotificationRule(
+                "Example Rule 1", NotificationScope.PORTFOLIO, NotificationLevel.INFORMATIONAL, publisher);
+        NotificationRule secondRule = qm.createNotificationRule(
+                "Example Rule 2", NotificationScope.PORTFOLIO, NotificationLevel.INFORMATIONAL, publisher);
+        Response response = jersey.target(V1_NOTIFICATION_PUBLISHER + "/" + publisher.getUuid())
+                .request()
                 .header(X_API_KEY, apiKey)
                 .delete();
         Assertions.assertEquals(204, response.getStatus(), 0);
@@ -423,7 +420,8 @@ class NotificationPublisherResourceTest extends ResourceTest {
     void deleteUnknownNotificationPublisherTest() {
         initializeWithPermissions(Permissions.SYSTEM_CONFIGURATION_DELETE);
 
-        Response response = jersey.target(V1_NOTIFICATION_PUBLISHER + "/" + UUID.randomUUID()).request()
+        Response response = jersey.target(V1_NOTIFICATION_PUBLISHER + "/" + UUID.randomUUID())
+                .request()
                 .header(X_API_KEY, apiKey)
                 .delete();
         Assertions.assertEquals(404, response.getStatus(), 0);
@@ -438,12 +436,12 @@ class NotificationPublisherResourceTest extends ResourceTest {
         final NotificationPublisher slackPublisher = qm.getNotificationPublisher("Slack");
         assertThat(slackPublisher).isNotNull();
 
-        final Response response = jersey.target(V1_NOTIFICATION_PUBLISHER + "/" + slackPublisher.getUuid()).request()
+        final Response response = jersey.target(V1_NOTIFICATION_PUBLISHER + "/" + slackPublisher.getUuid())
+                .request()
                 .header(X_API_KEY, apiKey)
                 .delete();
         assertThat(response.getStatus()).isEqualTo(400);
-        assertThat(getPlainTextBody(response)).isEqualTo(
-                "Deleting a default notification publisher is forbidden.");
+        assertThat(getPlainTextBody(response)).isEqualTo("Deleting a default notification publisher is forbidden.");
     }
 
     @Test
@@ -481,15 +479,9 @@ class NotificationPublisherResourceTest extends ResourceTest {
         qm.detach(NotificationPublisher.class, slackPublisher.getId());
 
         NotificationRule rule = qm.createNotificationRule(
-                "Example Rule 1",
-                NotificationScope.PORTFOLIO,
-                NotificationLevel.INFORMATIONAL,
-                slackPublisher);
+                "Example Rule 1", NotificationScope.PORTFOLIO, NotificationLevel.INFORMATIONAL, slackPublisher);
         qm.createNotificationRule(
-                        "Other Rule",
-                        NotificationScope.PORTFOLIO,
-                        NotificationLevel.INFORMATIONAL,
-                        slackPublisher)
+                        "Other Rule", NotificationScope.PORTFOLIO, NotificationLevel.INFORMATIONAL, slackPublisher)
                 .setNotifyOn(Set.of(NotificationGroup.NEW_VULNERABILITY));
 
         final Set<NotificationGroup> groups = Set.of(
@@ -507,8 +499,7 @@ class NotificationPublisherResourceTest extends ResourceTest {
         rule.setNotifyOn(groups);
         rule.setPublisherConfig("{\"destination\":\"https://example.com/webhook\"}");
 
-        final Response response = jersey
-                .target(V1_NOTIFICATION_PUBLISHER + "/test/" + rule.getUuid())
+        final Response response = jersey.target(V1_NOTIFICATION_PUBLISHER + "/test/" + rule.getUuid())
                 .request()
                 .header(X_API_KEY, apiKey)
                 .post(Entity.entity("", MediaType.APPLICATION_FORM_URLENCODED_TYPE));
@@ -518,11 +509,11 @@ class NotificationPublisherResourceTest extends ResourceTest {
         final Collection<? extends CreateWorkflowRunRequest<?>> requests = captureBatchedCreateRunRequests();
         assertThat(requests).hasSize(groups.size());
         assertThat(requests).allSatisfy(request -> {
-            assertThat(request.workflowInstanceId())
-                    .startsWith("publish-test-notification:" + rule.getUuid() + ":");
+            assertThat(request.workflowInstanceId()).startsWith("publish-test-notification:" + rule.getUuid() + ":");
             final var arg = (PublishNotificationWorkflowArg) request.argument();
             assertThat(arg.getNotificationRuleNamesList()).containsExactly("Example Rule 1");
             assertThat(arg.getNotification().getTitle()).startsWith("[TEST] ");
+            assertThat(arg.getRuleTest()).isTrue();
         });
         assertThat(qm.getNotificationOutbox()).isEmpty();
     }
@@ -534,13 +525,12 @@ class NotificationPublisherResourceTest extends ResourceTest {
         new DefaultNotificationPublisherInitializer().seedDefaultPublishers(pluginManager);
 
         final NotificationPublisher slackPublisher = qm.getNotificationPublisher("Slack");
-        final NotificationRule rule = qm.createScheduledNotificationRule("Scheduled Rule",
-                NotificationScope.PORTFOLIO, NotificationLevel.INFORMATIONAL, slackPublisher);
+        final NotificationRule rule = qm.createScheduledNotificationRule(
+                "Scheduled Rule", NotificationScope.PORTFOLIO, NotificationLevel.INFORMATIONAL, slackPublisher);
         rule.setNotifyOn(Set.of(NotificationGroup.NEW_VULNERABILITIES_SUMMARY));
         rule.setPublisherConfig("{\"destination\":\"https://example.com/webhook\"}");
 
-        final Response response = jersey
-                .target(V1_NOTIFICATION_PUBLISHER + "/test/" + rule.getUuid())
+        final Response response = jersey.target(V1_NOTIFICATION_PUBLISHER + "/test/" + rule.getUuid())
                 .request()
                 .header(X_API_KEY, apiKey)
                 .post(Entity.entity("", MediaType.APPLICATION_FORM_URLENCODED_TYPE));
@@ -554,6 +544,7 @@ class NotificationPublisherResourceTest extends ResourceTest {
             final var arg = (PublishNotificationWorkflowArg) request.argument();
             assertThat(arg.getNotificationRuleNamesList()).containsExactly("Scheduled Rule");
             assertThat(arg.getNotification().getTitle()).startsWith("[TEST] ");
+            assertThat(arg.getRuleTest()).isTrue();
         });
     }
 
@@ -561,13 +552,19 @@ class NotificationPublisherResourceTest extends ResourceTest {
     void shouldReturnNotFoundWhenRuleDoesNotExist() {
         initializeWithPermissions(Permissions.SYSTEM_CONFIGURATION);
 
-        final Response response = jersey
-                .target(V1_NOTIFICATION_PUBLISHER + "/test/" + UUID.randomUUID())
+        final Response response = jersey.target(V1_NOTIFICATION_PUBLISHER + "/test/" + UUID.randomUUID())
                 .request()
                 .header(X_API_KEY, apiKey)
                 .post(null);
         assertThat(response.getStatus()).isEqualTo(404);
         verify(DEX_ENGINE_MOCK, never()).createRuns(any());
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static Collection<? extends CreateWorkflowRunRequest<?>> captureBatchedCreateRunRequests() {
+        final ArgumentCaptor<Collection> captor = ArgumentCaptor.forClass(Collection.class);
+        verify(DEX_ENGINE_MOCK).createRuns(captor.capture());
+        return (Collection<? extends CreateWorkflowRunRequest<?>>) captor.getValue();
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})

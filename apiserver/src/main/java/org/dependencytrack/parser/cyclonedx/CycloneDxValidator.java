@@ -20,25 +20,31 @@ package org.dependencytrack.parser.cyclonedx;
 
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.core.JsonToken;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import org.cyclonedx.CycloneDxSchema;
 import org.cyclonedx.Version;
-import org.cyclonedx.exception.ParseException;
 import org.cyclonedx.parsers.JsonParser;
-import org.cyclonedx.parsers.Parser;
-import org.cyclonedx.parsers.XmlParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.xml.sax.ErrorHandler;
+import org.xml.sax.SAXException;
+import org.xml.sax.SAXParseException;
 
 import javax.xml.XMLConstants;
 import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamReader;
 import javax.xml.stream.events.XMLEvent;
+import javax.xml.transform.stax.StAXSource;
+import javax.xml.validation.Validator;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.cyclonedx.CycloneDxSchema.NS_BOM_10;
 import static org.cyclonedx.CycloneDxSchema.NS_BOM_11;
@@ -47,6 +53,7 @@ import static org.cyclonedx.CycloneDxSchema.NS_BOM_13;
 import static org.cyclonedx.CycloneDxSchema.NS_BOM_14;
 import static org.cyclonedx.CycloneDxSchema.NS_BOM_15;
 import static org.cyclonedx.CycloneDxSchema.NS_BOM_16;
+import static org.cyclonedx.CycloneDxSchema.NS_BOM_17;
 import static org.cyclonedx.Version.VERSION_10;
 import static org.cyclonedx.Version.VERSION_11;
 import static org.cyclonedx.Version.VERSION_12;
@@ -54,6 +61,7 @@ import static org.cyclonedx.Version.VERSION_13;
 import static org.cyclonedx.Version.VERSION_14;
 import static org.cyclonedx.Version.VERSION_15;
 import static org.cyclonedx.Version.VERSION_16;
+import static org.cyclonedx.Version.VERSION_17;
 
 /**
  * @since 4.11.0
@@ -64,34 +72,105 @@ public class CycloneDxValidator {
     private static final CycloneDxValidator INSTANCE = new CycloneDxValidator();
 
     private final JsonMapper jsonMapper = new JsonMapper();
+    private final XMLInputFactory xmlInputFactory = createXmlInputFactory();
+    private final CycloneDxSchema schemaSource = new JsonParser();
+    private final Map<Version, com.networknt.schema.Schema> jsonSchemaCache = new ConcurrentHashMap<>();
+    private final Map<Version, javax.xml.validation.Schema> xmlSchemaCache = new ConcurrentHashMap<>();
 
-    CycloneDxValidator() {
-    }
+    CycloneDxValidator() {}
 
     public static CycloneDxValidator getInstance() {
         return INSTANCE;
     }
 
-    public void validate(final byte[] bomBytes) {
+    public void validate(byte[] bomBytes) {
         final FormatAndVersion formatAndVersion = detectFormatAndSchemaVersion(bomBytes);
-        final Parser bomParser = switch (formatAndVersion.format()) {
-            case JSON -> new JsonParser();
-            case XML -> new XmlParser();
-        };
-        final List<ParseException> validationErrors;
-        try {
-            validationErrors = bomParser.validate(bomBytes, formatAndVersion.version());
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to validate BOM", e);
-        }
+        final List<String> validationErrors =
+                switch (formatAndVersion.format()) {
+                    case JSON -> validateJson(bomBytes, formatAndVersion.version());
+                    case XML -> validateXml(bomBytes, formatAndVersion.version());
+                };
         if (!validationErrors.isEmpty()) {
-            throw new InvalidBomException("Schema validation failed", validationErrors.stream()
-                    .map(ParseException::getMessage)
-                    .toList());
+            throw new InvalidBomException("Schema validation failed", validationErrors);
         }
     }
 
-    private FormatAndVersion detectFormatAndSchemaVersion(final byte[] bomBytes) {
+    private List<String> validateJson(byte[] bomBytes, Version version) {
+        final com.networknt.schema.Schema schema = jsonSchemaCache.computeIfAbsent(version, this::loadJsonSchema);
+
+        final JsonNode bomNode;
+        try {
+            bomNode = jsonMapper.readTree(bomBytes);
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to parse BOM", e);
+        }
+
+        return schema.validate(bomNode).stream()
+                .map(error -> error.getInstanceLocation() != null
+                                && error.getInstanceLocation().getNameCount() > 0
+                        ? "%s: %s".formatted(error.getInstanceLocation(), error.getMessage())
+                        : error.getMessage())
+                .toList();
+    }
+
+    private List<String> validateXml(byte[] bomBytes, Version version) {
+        final javax.xml.validation.Schema schema = xmlSchemaCache.computeIfAbsent(version, this::loadXmlSchema);
+
+        // NB: Validator is not thread-safe.
+        final Validator validator = schema.newValidator();
+        try {
+            validator.setProperty(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            validator.setProperty(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+        } catch (SAXException e) {
+            throw new IllegalStateException("Failed to harden XML validator", e);
+        }
+
+        final var validationErrors = new ArrayList<String>();
+        validator.setErrorHandler(new ErrorHandler() {
+            @Override
+            public void warning(final SAXParseException e) {
+                validationErrors.add(e.getMessage());
+            }
+
+            @Override
+            public void error(final SAXParseException e) {
+                validationErrors.add(e.getMessage());
+            }
+
+            @Override
+            public void fatalError(final SAXParseException e) {
+                validationErrors.add(e.getMessage());
+            }
+        });
+
+        try {
+            final XMLStreamReader streamReader =
+                    xmlInputFactory.createXMLStreamReader(new ByteArrayInputStream(bomBytes));
+            validator.validate(new StAXSource(streamReader));
+        } catch (SAXException | XMLStreamException | IOException e) {
+            throw new IllegalStateException("Failed to validate BOM", e);
+        }
+
+        return validationErrors;
+    }
+
+    private com.networknt.schema.Schema loadJsonSchema(Version version) {
+        try {
+            return schemaSource.getJsonSchema(version, jsonMapper);
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to load CycloneDX JSON schema for " + version, e);
+        }
+    }
+
+    private javax.xml.validation.Schema loadXmlSchema(Version version) {
+        try {
+            return schemaSource.getXmlSchema(version);
+        } catch (SAXException e) {
+            throw new IllegalStateException("Failed to load CycloneDX XML schema for " + version, e);
+        }
+    }
+
+    private FormatAndVersion detectFormatAndSchemaVersion(byte[] bomBytes) {
         final var suppressedExceptions = new ArrayList<Exception>(2);
 
         try {
@@ -121,14 +200,17 @@ public class CycloneDxValidator {
         throw exception;
     }
 
-    private Version detectSchemaVersionFromJson(final byte[] bomBytes) throws IOException {
+    private Version detectSchemaVersionFromJson(byte[] bomBytes) throws IOException {
         try (final com.fasterxml.jackson.core.JsonParser jsonParser = jsonMapper.createParser(bomBytes)) {
             JsonToken currentToken = jsonParser.nextToken();
             if (currentToken != JsonToken.START_OBJECT) {
                 final String currentTokenAsString = Optional.ofNullable(currentToken)
-                        .map(JsonToken::asString).orElse(null);
-                throw new JsonParseException(jsonParser, "Expected token %s, but got %s"
-                        .formatted(JsonToken.START_OBJECT.asString(), currentTokenAsString));
+                        .map(JsonToken::asString)
+                        .orElse(null);
+                throw new JsonParseException(
+                        jsonParser,
+                        "Expected token %s, but got %s"
+                                .formatted(JsonToken.START_OBJECT.asString(), currentTokenAsString));
             }
 
             Version schemaVersion = null;
@@ -139,14 +221,16 @@ public class CycloneDxValidator {
                         final String specVersion = jsonParser.getValueAsString();
                         schemaVersion = switch (jsonParser.getValueAsString()) {
                             case "1.0", "1.1" ->
-                                    throw new InvalidBomException("JSON is not supported for specVersion %s".formatted(specVersion));
+                                throw new InvalidBomException(
+                                        "JSON is not supported for specVersion %s".formatted(specVersion));
                             case "1.2" -> VERSION_12;
                             case "1.3" -> VERSION_13;
                             case "1.4" -> VERSION_14;
                             case "1.5" -> VERSION_15;
                             case "1.6" -> VERSION_16;
+                            case "1.7" -> VERSION_17;
                             default ->
-                                    throw new InvalidBomException("Unrecognized specVersion %s".formatted(specVersion));
+                                throw new InvalidBomException("Unrecognized specVersion %s".formatted(specVersion));
                         };
                     }
                 }
@@ -160,14 +244,7 @@ public class CycloneDxValidator {
         }
     }
 
-    private Version detectSchemaVersionFromXml(final byte[] bomBytes) throws XMLStreamException {
-        final XMLInputFactory xmlInputFactory = XMLInputFactory.newFactory();
-        xmlInputFactory.setProperty(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-        // NB: Setting XMLConstants.ACCESS_EXTERNAL_DTD to empty string is recommended by SAST tools,
-        // but Woodstox does not support it: https://github.com/FasterXML/woodstox/issues/51
-        // Setting IS_SUPPORTING_EXTERNAL_ENTITIES to false achieves the same:
-        // https://github.com/FasterXML/woodstox/issues/50#issuecomment-388842419
-        xmlInputFactory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
+    private Version detectSchemaVersionFromXml(byte[] bomBytes) throws XMLStreamException {
         final var bomBytesStream = new ByteArrayInputStream(bomBytes);
         final XMLStreamReader xmlStreamReader = xmlInputFactory.createXMLStreamReader(bomBytesStream);
 
@@ -191,6 +268,7 @@ public class CycloneDxValidator {
                         case NS_BOM_14 -> VERSION_14;
                         case NS_BOM_15 -> VERSION_15;
                         case NS_BOM_16 -> VERSION_16;
+                        case NS_BOM_17 -> VERSION_17;
                         default -> null;
                     };
 
@@ -199,8 +277,8 @@ public class CycloneDxValidator {
                     }
                 }
                 if (schemaVersion == null) {
-                    throw new InvalidBomException("Unable to determine schema version from XML namespaces %s"
-                            .formatted(namespaceUrisSeen));
+                    throw new InvalidBomException(
+                            "Unable to determine schema version from XML namespaces %s".formatted(namespaceUrisSeen));
                 }
 
                 break;
@@ -219,7 +297,13 @@ public class CycloneDxValidator {
         XML
     }
 
-    private record FormatAndVersion(Format format, Version version) {
-    }
+    private record FormatAndVersion(Format format, Version version) {}
 
+    private static XMLInputFactory createXmlInputFactory() {
+        final var factory = XMLInputFactory.newFactory();
+        factory.setProperty(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+        factory.setProperty(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        factory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
+        return factory;
+    }
 }

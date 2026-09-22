@@ -67,8 +67,7 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
 
     @Test
     public void testWithoutAlpineRequest() {
-        useJdbiHandle(handle -> handle
-                .addCustomizer(inspectStatement(ctx -> {
+        useJdbiHandle(handle -> handle.addCustomizer(inspectStatement(ctx -> {
                     assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
                             SELECT 1 AS "valueA", 2 AS "valueB" FROM "PROJECT" WHERE TRUE
                             """);
@@ -87,20 +86,20 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 /* pagination */ null,
                 /* filter */ "foo",
                 /* orderBy */ null,
-                /* orderDirection */ null
-        );
+                /* orderDirection */ null);
 
-        useJdbiHandle(request, handle -> handle
-                .addCustomizer(inspectStatement(ctx -> {
-                    assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
+        useJdbiHandle(
+                request,
+                handle -> handle.addCustomizer(inspectStatement(ctx -> {
+                            assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
                             SELECT 1 AS "valueA", 2 AS "valueB" FROM "PROJECT" WHERE TRUE AND 'foo' = :apiFilter
                             """);
 
-                    assertThat(ctx.getBinding()).hasToString("{named:{apiFilter:foo}}");
-                }))
-                .createQuery(TEST_QUERY_TEMPLATE)
-                .mapTo(Integer.class)
-                .findOne());
+                            assertThat(ctx.getBinding()).hasToString("{named:{apiFilter:foo}}");
+                        }))
+                        .createQuery(TEST_QUERY_TEMPLATE)
+                        .mapTo(Integer.class)
+                        .findOne());
     }
 
     @Test
@@ -110,21 +109,46 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 /* pagination */ new Pagination(Pagination.Strategy.PAGES, 1, 100),
                 /* filter */ null,
                 /* orderBy */ null,
-                /* orderDirection */ null
-        );
+                /* orderDirection */ null);
 
-        useJdbiHandle(request, handle -> handle
-                .addCustomizer(inspectStatement(ctx -> {
-                    assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
+        useJdbiHandle(
+                request,
+                handle -> handle.addCustomizer(inspectStatement(ctx -> {
+                            assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
                             SELECT 1 AS "valueA", 2 AS "valueB" FROM "PROJECT" WHERE TRUE
                             OFFSET :paginationOffset FETCH NEXT :paginationLimit ROWS ONLY
                             """);
 
-                    assertThat(ctx.getBinding()).hasToString("{named:{paginationOffset:0,paginationLimit:100}}");
-                }))
-                .createQuery(TEST_QUERY_TEMPLATE)
-                .mapTo(Integer.class)
-                .findOne());
+                            assertThat(ctx.getBinding())
+                                    .hasToString("{named:{paginationOffset:0,paginationLimit:100}}");
+                        }))
+                        .createQuery(TEST_QUERY_TEMPLATE)
+                        .mapTo(Integer.class)
+                        .findOne());
+    }
+
+    @Test
+    public void testWithAlpineRequestPaginationOptOut() {
+        final var request = new AlpineRequest(
+                /* principal */ null,
+                /* pagination */ new Pagination(Pagination.Strategy.PAGES, 1, 100),
+                /* filter */ null,
+                /* orderBy */ null,
+                /* orderDirection */ null);
+
+        useJdbiHandle(
+                request,
+                handle -> handle.addCustomizer(inspectStatement(ctx -> {
+                            assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace(/* language=SQL */ """
+                            SELECT 1 AS "valueA", 2 AS "valueB" FROM "PROJECT" WHERE TRUE
+                            """);
+
+                            assertThat(ctx.getBinding()).hasToString("{}");
+                        }))
+                        .createQuery(TEST_QUERY_TEMPLATE)
+                        .define(JdbiAttributes.ATTRIBUTE_API_PAGINATE, false)
+                        .mapTo(Integer.class)
+                        .findOne());
     }
 
     @Test
@@ -134,20 +158,20 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 /* pagination */ null,
                 /* filter */ null,
                 /* orderBy */ "value",
-                /* orderDirection */ OrderDirection.DESCENDING
-        );
+                /* orderDirection */ OrderDirection.DESCENDING);
 
-        useJdbiHandle(request, handle -> handle
-                .addCustomizer(inspectStatement(ctx -> {
-                    assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
+        useJdbiHandle(
+                request,
+                handle -> handle.addCustomizer(inspectStatement(ctx -> {
+                            assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
                             SELECT 1 AS "valueA", 2 AS "valueB" FROM "PROJECT" WHERE TRUE
                             """);
 
-                    assertThat(ctx.getBinding()).hasToString("{}");
-                }))
-                .createQuery(TEST_QUERY_TEMPLATE)
-                .mapTo(Integer.class)
-                .findOne());
+                            assertThat(ctx.getBinding()).hasToString("{}");
+                        }))
+                        .createQuery(TEST_QUERY_TEMPLATE)
+                        .mapTo(Integer.class)
+                        .findOne());
     }
 
     @Test
@@ -157,16 +181,17 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 /* pagination */ null,
                 /* filter */ null,
                 /* orderBy */ "value",
-                /* orderDirection */ OrderDirection.DESCENDING
-        );
+                /* orderDirection */ OrderDirection.DESCENDING);
 
         assertThatExceptionOfType(InvalidSortFieldException.class)
-                .isThrownBy(() -> useJdbiHandle(request, handle -> handle
-                        .configure(ApiRequestConfig.class, config ->
-                                config.setOrderingAllowedColumns(Collections.emptySet()))
-                        .createQuery(TEST_QUERY_TEMPLATE)
-                        .mapTo(Integer.class)
-                        .findOne()))
+                .isThrownBy(() -> useJdbiHandle(
+                        request,
+                        handle -> handle.configure(
+                                        ApiRequestConfig.class,
+                                        config -> config.setOrderingAllowedColumns(Collections.emptySet()))
+                                .createQuery(TEST_QUERY_TEMPLATE)
+                                .mapTo(Integer.class)
+                                .findOne()))
                 .withMessage("Sorting by field 'value' is not supported")
                 .satisfies(e -> {
                     assertThat(e.getFieldName()).isEqualTo("value");
@@ -181,16 +206,18 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 /* pagination */ null,
                 /* filter */ null,
                 /* orderBy */ "foobar",
-                /* orderDirection */ OrderDirection.DESCENDING
-        );
+                /* orderDirection */ OrderDirection.DESCENDING);
 
         assertThatExceptionOfType(InvalidSortFieldException.class)
-                .isThrownBy(() -> useJdbiHandle(request, handle -> handle
-                        .configure(ApiRequestConfig.class, config ->
-                                config.setOrderingAllowedColumns(Set.of(new OrderingColumn("valueA"))))
-                        .createQuery(TEST_QUERY_TEMPLATE)
-                        .mapTo(Integer.class)
-                        .findOne()))
+                .isThrownBy(() -> useJdbiHandle(
+                        request,
+                        handle -> handle.configure(
+                                        ApiRequestConfig.class,
+                                        config ->
+                                                config.setOrderingAllowedColumns(Set.of(new OrderingColumn("valueA"))))
+                                .createQuery(TEST_QUERY_TEMPLATE)
+                                .mapTo(Integer.class)
+                                .findOne()))
                 .withMessage("Sorting by field 'foobar' is not supported")
                 .satisfies(e -> {
                     assertThat(e.getFieldName()).isEqualTo("foobar");
@@ -205,22 +232,23 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 /* pagination */ null,
                 /* filter */ null,
                 /* orderBy */ "valueA",
-                /* orderDirection */ OrderDirection.DESCENDING
-        );
+                /* orderDirection */ OrderDirection.DESCENDING);
 
-        useJdbiHandle(request, handle -> handle
-                .configure(ApiRequestConfig.class, config ->
-                        config.setOrderingAllowedColumns(Set.of(new OrderingColumn("valueA"))))
-                .addCustomizer(inspectStatement(ctx -> {
-                    assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
+        useJdbiHandle(
+                request,
+                handle -> handle.configure(
+                                ApiRequestConfig.class,
+                                config -> config.setOrderingAllowedColumns(Set.of(new OrderingColumn("valueA"))))
+                        .addCustomizer(inspectStatement(ctx -> {
+                            assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
                             SELECT 1 AS "valueA", 2 AS "valueB" FROM "PROJECT" WHERE TRUE ORDER BY "valueA" DESC
                             """);
 
-                    assertThat(ctx.getBinding()).hasToString("{}");
-                }))
-                .createQuery(TEST_QUERY_TEMPLATE)
-                .mapTo(Integer.class)
-                .findOne());
+                            assertThat(ctx.getBinding()).hasToString("{}");
+                        }))
+                        .createQuery(TEST_QUERY_TEMPLATE)
+                        .mapTo(Integer.class)
+                        .findOne());
     }
 
     @Test
@@ -230,24 +258,22 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 /* pagination */ null,
                 /* filter */ null,
                 /* orderBy */ "foobar",
-                /* orderDirection */ OrderDirection.DESCENDING
-        );
+                /* orderDirection */ OrderDirection.DESCENDING);
 
         assertThatExceptionOfType(InvalidSortFieldException.class)
-                .isThrownBy(() -> useJdbiHandle(request, handle -> handle
-                        .configure(ApiRequestConfig.class, config -> {
-                            config.setOrderingAllowedColumns(Set.of(new OrderingColumn("valueA")));
-                            config.setOrderingAlwaysBy(new AlwaysByOrdering("fa.\"ID\""));
-                        })
-                        .createQuery(TEST_QUERY_TEMPLATE)
-                        .mapTo(Integer.class)
-                        .findOne()))
+                .isThrownBy(() -> useJdbiHandle(
+                        request,
+                        handle -> handle.configure(ApiRequestConfig.class, config -> {
+                                    config.setOrderingAllowedColumns(Set.of(new OrderingColumn("valueA")));
+                                    config.setOrderingAlwaysBy(new AlwaysByOrdering("fa.\"ID\""));
+                                })
+                                .createQuery(TEST_QUERY_TEMPLATE)
+                                .mapTo(Integer.class)
+                                .findOne()))
                 .withMessage("Sorting by field 'foobar' is not supported")
                 .satisfies(e -> {
                     assertThat(e.getFieldName()).isEqualTo("foobar");
-                    assertThat(e.getAllowedFieldNames())
-                            .containsOnly("valueA")
-                            .doesNotContain("fa.\"ID\"");
+                    assertThat(e.getAllowedFieldNames()).containsOnly("valueA").doesNotContain("fa.\"ID\"");
                 });
     }
 
@@ -258,24 +284,24 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 /* pagination */ null,
                 /* filter */ null,
                 /* orderBy */ "valueA",
-                /* orderDirection */ OrderDirection.DESCENDING
-        );
+                /* orderDirection */ OrderDirection.DESCENDING);
 
-        useJdbiHandle(request, handle -> handle
-                .configure(ApiRequestConfig.class, config -> {
-                    config.setOrderingAllowedColumns(Set.of(new OrderingColumn("valueA")));
-                    config.setOrderingAlwaysBy(new AlwaysByOrdering("\"valueA\""));
-                })
-                .addCustomizer(inspectStatement(ctx -> {
-                    assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
+        useJdbiHandle(
+                request,
+                handle -> handle.configure(ApiRequestConfig.class, config -> {
+                            config.setOrderingAllowedColumns(Set.of(new OrderingColumn("valueA")));
+                            config.setOrderingAlwaysBy(new AlwaysByOrdering("\"valueA\""));
+                        })
+                        .addCustomizer(inspectStatement(ctx -> {
+                            assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
                             SELECT 1 AS "valueA", 2 AS "valueB" FROM "PROJECT" WHERE TRUE ORDER BY "valueA" DESC
                             """);
 
-                    assertThat(ctx.getBinding()).hasToString("{}");
-                }))
-                .createQuery(TEST_QUERY_TEMPLATE)
-                .mapTo(Integer.class)
-                .findOne());
+                            assertThat(ctx.getBinding()).hasToString("{}");
+                        }))
+                        .createQuery(TEST_QUERY_TEMPLATE)
+                        .mapTo(Integer.class)
+                        .findOne());
     }
 
     @Test
@@ -285,24 +311,24 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 /* pagination */ null,
                 /* filter */ null,
                 /* orderBy */ "valueA",
-                /* orderDirection */ OrderDirection.DESCENDING
-        );
+                /* orderDirection */ OrderDirection.DESCENDING);
 
-        useJdbiHandle(request, handle -> handle
-                .configure(ApiRequestConfig.class, config -> {
-                    config.setOrderingAllowedColumns(Set.of(new OrderingColumn("valueA")));
-                    config.setOrderingAlwaysBy(new AlwaysByOrdering("\"valueB\""));
-                })
-                .addCustomizer(inspectStatement(ctx -> {
-                    assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
+        useJdbiHandle(
+                request,
+                handle -> handle.configure(ApiRequestConfig.class, config -> {
+                            config.setOrderingAllowedColumns(Set.of(new OrderingColumn("valueA")));
+                            config.setOrderingAlwaysBy(new AlwaysByOrdering("\"valueB\""));
+                        })
+                        .addCustomizer(inspectStatement(ctx -> {
+                            assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
                             SELECT 1 AS "valueA", 2 AS "valueB" FROM "PROJECT" WHERE TRUE ORDER BY "valueA" DESC, "valueB"
                             """);
 
-                    assertThat(ctx.getBinding()).hasToString("{}");
-                }))
-                .createQuery(TEST_QUERY_TEMPLATE)
-                .mapTo(Integer.class)
-                .findOne());
+                            assertThat(ctx.getBinding()).hasToString("{}");
+                        }))
+                        .createQuery(TEST_QUERY_TEMPLATE)
+                        .mapTo(Integer.class)
+                        .findOne());
     }
 
     @Test
@@ -312,24 +338,24 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 /* pagination */ null,
                 /* filter */ null,
                 /* orderBy */ "valueA",
-                /* orderDirection */ OrderDirection.DESCENDING
-        );
+                /* orderDirection */ OrderDirection.DESCENDING);
 
-        useJdbiHandle(request, handle -> handle
-                .configure(ApiRequestConfig.class, config -> {
-                    config.setOrderingAllowedColumns(Set.of(new OrderingColumn("valueA")));
-                    config.setOrderingAlwaysBy(new AlwaysByOrdering("\"valueB\"", OrderDirection.ASCENDING));
-                })
-                .addCustomizer(inspectStatement(ctx -> {
-                    assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
+        useJdbiHandle(
+                request,
+                handle -> handle.configure(ApiRequestConfig.class, config -> {
+                            config.setOrderingAllowedColumns(Set.of(new OrderingColumn("valueA")));
+                            config.setOrderingAlwaysBy(new AlwaysByOrdering("\"valueB\"", OrderDirection.ASCENDING));
+                        })
+                        .addCustomizer(inspectStatement(ctx -> {
+                            assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
                             SELECT 1 AS "valueA", 2 AS "valueB" FROM "PROJECT" WHERE TRUE ORDER BY "valueA" DESC, "valueB" ASC
                             """);
 
-                    assertThat(ctx.getBinding()).hasToString("{}");
-                }))
-                .createQuery(TEST_QUERY_TEMPLATE)
-                .mapTo(Integer.class)
-                .findOne());
+                            assertThat(ctx.getBinding()).hasToString("{}");
+                        }))
+                        .createQuery(TEST_QUERY_TEMPLATE)
+                        .mapTo(Integer.class)
+                        .findOne());
     }
 
     @Test
@@ -339,8 +365,7 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyName(),
                 "false",
                 ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyType(),
-                ACCESS_MANAGEMENT_ACL_ENABLED.getDescription()
-        );
+                ACCESS_MANAGEMENT_ACL_ENABLED.getDescription());
 
         final ManagedUser managedUser = qm.createManagedUser("username", "passwordHash");
 
@@ -349,20 +374,20 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 /* pagination */ null,
                 /* filter */ null,
                 /* orderBy */ null,
-                /* orderDirection */ null
-        );
+                /* orderDirection */ null);
 
-        useJdbiHandle(request, handle -> handle
-                .addCustomizer(inspectStatement(ctx -> {
-                    assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
+        useJdbiHandle(
+                request,
+                handle -> handle.addCustomizer(inspectStatement(ctx -> {
+                            assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
                             SELECT 1 AS "valueA", 2 AS "valueB" FROM "PROJECT" WHERE TRUE
                             """);
 
-                    assertThat(ctx.getBinding()).hasToString("{}");
-                }))
-                .createQuery(TEST_QUERY_TEMPLATE)
-                .mapTo(Integer.class)
-                .findOne());
+                            assertThat(ctx.getBinding()).hasToString("{}");
+                        }))
+                        .createQuery(TEST_QUERY_TEMPLATE)
+                        .mapTo(Integer.class)
+                        .findOne());
     }
 
     @Test
@@ -372,8 +397,7 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyName(),
                 "true",
                 ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyType(),
-                ACCESS_MANAGEMENT_ACL_ENABLED.getDescription()
-        );
+                ACCESS_MANAGEMENT_ACL_ENABLED.getDescription());
 
         final ManagedUser managedUser = qm.createManagedUser("username", "passwordHash");
 
@@ -382,12 +406,12 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 /* pagination */ null,
                 /* filter */ null,
                 /* orderBy */ null,
-                /* orderDirection */ null
-        );
+                /* orderDirection */ null);
 
-        useJdbiHandle(request, handle -> handle
-                .addCustomizer(inspectStatement(ctx -> {
-                    assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace(/* language=SQL */ """
+        useJdbiHandle(
+                request,
+                handle -> handle.addCustomizer(inspectStatement(ctx -> {
+                            assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace(/* language=SQL */ """
                             SELECT
                               1 AS "valueA",
                               2 AS "valueB"
@@ -402,12 +426,12 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                              )
                             """);
 
-                    assertThat(ctx.getBinding())
-                            .hasToString("{named:{projectAclUserId:%d}}".formatted(managedUser.getId()));
-                }))
-                .createQuery(TEST_QUERY_TEMPLATE)
-                .mapTo(Integer.class)
-                .findOne());
+                            assertThat(ctx.getBinding())
+                                    .hasToString("{named:{projectAclUserId:%d}}".formatted(managedUser.getId()));
+                        }))
+                        .createQuery(TEST_QUERY_TEMPLATE)
+                        .mapTo(Integer.class)
+                        .findOne());
     }
 
     @Test
@@ -417,8 +441,7 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyName(),
                 "true",
                 ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyType(),
-                ACCESS_MANAGEMENT_ACL_ENABLED.getDescription()
-        );
+                ACCESS_MANAGEMENT_ACL_ENABLED.getDescription());
 
         final Team team = qm.createTeam("team");
         final ApiKey apiKey = qm.createApiKey(team);
@@ -429,20 +452,20 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 /* filter */ null,
                 /* orderBy */ null,
                 /* orderDirection */ null,
-                /* effectivePermissions */ Set.of(Permissions.Constants.PORTFOLIO_ACCESS_CONTROL_BYPASS)
-        );
+                /* effectivePermissions */ Set.of(Permissions.Constants.PORTFOLIO_ACCESS_CONTROL_BYPASS));
 
-        useJdbiHandle(request, handle -> handle
-                .addCustomizer(inspectStatement(ctx -> {
-                    assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
+        useJdbiHandle(
+                request,
+                handle -> handle.addCustomizer(inspectStatement(ctx -> {
+                            assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
                             SELECT 1 AS "valueA", 2 AS "valueB" FROM "PROJECT" WHERE TRUE
                             """);
 
-                    assertThat(ctx.getBinding()).hasToString("{}");
-                }))
-                .createQuery(TEST_QUERY_TEMPLATE)
-                .mapTo(Integer.class)
-                .findOne());
+                            assertThat(ctx.getBinding()).hasToString("{}");
+                        }))
+                        .createQuery(TEST_QUERY_TEMPLATE)
+                        .mapTo(Integer.class)
+                        .findOne());
     }
 
     @Test
@@ -452,8 +475,7 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyName(),
                 "true",
                 ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyType(),
-                ACCESS_MANAGEMENT_ACL_ENABLED.getDescription()
-        );
+                ACCESS_MANAGEMENT_ACL_ENABLED.getDescription());
 
         final ManagedUser managedUser = qm.createManagedUser("username", "passwordHash");
 
@@ -463,20 +485,20 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 /* filter */ null,
                 /* orderBy */ null,
                 /* orderDirection */ null,
-                /* effectivePermissions */ Set.of(Permissions.Constants.PORTFOLIO_ACCESS_CONTROL_BYPASS)
-        );
+                /* effectivePermissions */ Set.of(Permissions.Constants.PORTFOLIO_ACCESS_CONTROL_BYPASS));
 
-        useJdbiHandle(request, handle -> handle
-                .addCustomizer(inspectStatement(ctx -> {
-                    assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
+        useJdbiHandle(
+                request,
+                handle -> handle.addCustomizer(inspectStatement(ctx -> {
+                            assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
                             SELECT 1 AS "valueA", 2 AS "valueB" FROM "PROJECT" WHERE TRUE
                             """);
 
-                    assertThat(ctx.getBinding()).hasToString("{}");
-                }))
-                .createQuery(TEST_QUERY_TEMPLATE)
-                .mapTo(Integer.class)
-                .findOne());
+                            assertThat(ctx.getBinding()).hasToString("{}");
+                        }))
+                        .createQuery(TEST_QUERY_TEMPLATE)
+                        .mapTo(Integer.class)
+                        .findOne());
     }
 
     @Test
@@ -486,8 +508,7 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyName(),
                 "true",
                 ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyType(),
-                ACCESS_MANAGEMENT_ACL_ENABLED.getDescription()
-        );
+                ACCESS_MANAGEMENT_ACL_ENABLED.getDescription());
 
         final LdapUser ldapUser = qm.createLdapUser("username");
 
@@ -497,20 +518,20 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 /* filter */ null,
                 /* orderBy */ null,
                 /* orderDirection */ null,
-                /* effectivePermissions */ Set.of(Permissions.Constants.PORTFOLIO_ACCESS_CONTROL_BYPASS)
-        );
+                /* effectivePermissions */ Set.of(Permissions.Constants.PORTFOLIO_ACCESS_CONTROL_BYPASS));
 
-        useJdbiHandle(request, handle -> handle
-                .addCustomizer(inspectStatement(ctx -> {
-                    assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
+        useJdbiHandle(
+                request,
+                handle -> handle.addCustomizer(inspectStatement(ctx -> {
+                            assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
                             SELECT 1 AS "valueA", 2 AS "valueB" FROM "PROJECT" WHERE TRUE
                             """);
 
-                    assertThat(ctx.getBinding()).hasToString("{}");
-                }))
-                .createQuery(TEST_QUERY_TEMPLATE)
-                .mapTo(Integer.class)
-                .findOne());
+                            assertThat(ctx.getBinding()).hasToString("{}");
+                        }))
+                        .createQuery(TEST_QUERY_TEMPLATE)
+                        .mapTo(Integer.class)
+                        .findOne());
     }
 
     @Test
@@ -520,8 +541,7 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyName(),
                 "true",
                 ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyType(),
-                ACCESS_MANAGEMENT_ACL_ENABLED.getDescription()
-        );
+                ACCESS_MANAGEMENT_ACL_ENABLED.getDescription());
 
         final OidcUser oidcUser = qm.createOidcUser("username");
 
@@ -531,20 +551,20 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 /* filter */ null,
                 /* orderBy */ null,
                 /* orderDirection */ null,
-                /* effectivePermissions */ Set.of(Permissions.Constants.PORTFOLIO_ACCESS_CONTROL_BYPASS)
-        );
+                /* effectivePermissions */ Set.of(Permissions.Constants.PORTFOLIO_ACCESS_CONTROL_BYPASS));
 
-        useJdbiHandle(request, handle -> handle
-                .addCustomizer(inspectStatement(ctx -> {
-                    assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
+        useJdbiHandle(
+                request,
+                handle -> handle.addCustomizer(inspectStatement(ctx -> {
+                            assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
                             SELECT 1 AS "valueA", 2 AS "valueB" FROM "PROJECT" WHERE TRUE
                             """);
 
-                    assertThat(ctx.getBinding()).hasToString("{}");
-                }))
-                .createQuery(TEST_QUERY_TEMPLATE)
-                .mapTo(Integer.class)
-                .findOne());
+                            assertThat(ctx.getBinding()).hasToString("{}");
+                        }))
+                        .createQuery(TEST_QUERY_TEMPLATE)
+                        .mapTo(Integer.class)
+                        .findOne());
     }
 
     @Test
@@ -554,8 +574,7 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyName(),
                 "true",
                 ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyType(),
-                ACCESS_MANAGEMENT_ACL_ENABLED.getDescription()
-        );
+                ACCESS_MANAGEMENT_ACL_ENABLED.getDescription());
 
         final Team team = qm.createTeam("team");
         final ApiKey apiKey = qm.createApiKey(team);
@@ -565,12 +584,12 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 /* pagination */ null,
                 /* filter */ null,
                 /* orderBy */ null,
-                /* orderDirection */ null
-        );
+                /* orderDirection */ null);
 
-        useJdbiHandle(request, handle -> handle
-                .addCustomizer(inspectStatement(ctx -> {
-                    assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
+        useJdbiHandle(
+                request,
+                handle -> handle.addCustomizer(inspectStatement(ctx -> {
+                            assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
                             SELECT 1 AS "valueA"
                                  , 2 AS "valueB"
                               FROM "PROJECT"
@@ -586,11 +605,12 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                              )
                             """);
 
-                    assertThat(ctx.getBinding()).hasToString("{named:{projectAclApiKeyId:%s}}".formatted(apiKey.getId()));
-                }))
-                .createQuery(TEST_QUERY_TEMPLATE)
-                .mapTo(Integer.class)
-                .findOne());
+                            assertThat(ctx.getBinding())
+                                    .hasToString("{named:{projectAclApiKeyId:%s}}".formatted(apiKey.getId()));
+                        }))
+                        .createQuery(TEST_QUERY_TEMPLATE)
+                        .mapTo(Integer.class)
+                        .findOne());
     }
 
     @Test
@@ -600,8 +620,7 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyName(),
                 "true",
                 ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyType(),
-                ACCESS_MANAGEMENT_ACL_ENABLED.getDescription()
-        );
+                ACCESS_MANAGEMENT_ACL_ENABLED.getDescription());
 
         final Team team = qm.createTeam("team");
         final ApiKey apiKey = qm.createApiKey(team);
@@ -611,12 +630,12 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 /* pagination */ null,
                 /* filter */ null,
                 /* orderBy */ null,
-                /* orderDirection */ null
-        );
+                /* orderDirection */ null);
 
-        useJdbiHandle(request, handle -> handle
-                .addCustomizer(inspectStatement(ctx -> {
-                    assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
+        useJdbiHandle(
+                request,
+                handle -> handle.addCustomizer(inspectStatement(ctx -> {
+                            assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
                             SELECT 1 AS "valueA"
                                  , 2 AS "valueB"
                               FROM "PROJECT"
@@ -632,14 +651,15 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                              )
                             """);
 
-                    assertThat(ctx.getBinding()).hasToString("{named:{projectAclApiKeyId:%s}}".formatted(apiKey.getId()));
-                }))
-                .addCustomizer(new DefineApiProjectAclCondition.StatementCustomizer(
-                        JdbiAttributes.ATTRIBUTE_API_PROJECT_ACL_CONDITION,
-                        "\"PROJECT\".\"PARENT_PROJECT_ID\""))
-                .createQuery(TEST_QUERY_TEMPLATE)
-                .mapTo(Integer.class)
-                .findOne());
+                            assertThat(ctx.getBinding())
+                                    .hasToString("{named:{projectAclApiKeyId:%s}}".formatted(apiKey.getId()));
+                        }))
+                        .addCustomizer(new DefineApiProjectAclCondition.StatementCustomizer(
+                                JdbiAttributes.ATTRIBUTE_API_PROJECT_ACL_CONDITION,
+                                "\"PROJECT\".\"PARENT_PROJECT_ID\""))
+                        .createQuery(TEST_QUERY_TEMPLATE)
+                        .mapTo(Integer.class)
+                        .findOne());
     }
 
     @Test
@@ -649,8 +669,7 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyName(),
                 "true",
                 ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyType(),
-                ACCESS_MANAGEMENT_ACL_ENABLED.getDescription()
-        );
+                ACCESS_MANAGEMENT_ACL_ENABLED.getDescription());
 
         final User user = qm.createManagedUser("foo", "password");
 
@@ -659,12 +678,12 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                 /* pagination */ null,
                 /* filter */ null,
                 /* orderBy */ null,
-                /* orderDirection */ null
-        );
+                /* orderDirection */ null);
 
-        useJdbiHandle(request, handle -> handle
-                .addCustomizer(inspectStatement(ctx -> {
-                    assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
+        useJdbiHandle(
+                request,
+                handle -> handle.addCustomizer(inspectStatement(ctx -> {
+                            assertThat(ctx.getRenderedSql()).isEqualToIgnoringWhitespace("""
                             SELECT 1 AS "valueA"
                                  , 2 AS "valueB"
                               FROM "PROJECT"
@@ -678,14 +697,15 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
                              )
                             """);
 
-                    assertThat(ctx.getBinding()).hasToString("{named:{projectAclUserId:%s}}".formatted(user.getId()));
-                }))
-                .addCustomizer(new DefineApiProjectAclCondition.StatementCustomizer(
-                        JdbiAttributes.ATTRIBUTE_API_PROJECT_ACL_CONDITION,
-                        "\"PROJECT\".\"PARENT_PROJECT_ID\""))
-                .createQuery(TEST_QUERY_TEMPLATE)
-                .mapTo(Integer.class)
-                .findOne());
+                            assertThat(ctx.getBinding())
+                                    .hasToString("{named:{projectAclUserId:%s}}".formatted(user.getId()));
+                        }))
+                        .addCustomizer(new DefineApiProjectAclCondition.StatementCustomizer(
+                                JdbiAttributes.ATTRIBUTE_API_PROJECT_ACL_CONDITION,
+                                "\"PROJECT\".\"PARENT_PROJECT_ID\""))
+                        .createQuery(TEST_QUERY_TEMPLATE)
+                        .mapTo(Integer.class)
+                        .findOne());
     }
 
     private static StatementInspector inspectStatement(final Consumer<StatementContext> contextConsumer) {
@@ -698,7 +718,5 @@ public class ApiRequestStatementCustomizerTest extends PersistenceCapableTest {
         public void beforeExecution(final PreparedStatement stmt, final StatementContext ctx) {
             contextConsumer.accept(ctx);
         }
-
     }
-
 }

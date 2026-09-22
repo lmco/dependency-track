@@ -68,11 +68,12 @@ public class GroupedFindingTest extends PersistenceCapableTest {
                 BigDecimal.valueOf(8.4),
                 BigDecimal.valueOf(0.4),
                 BigDecimal.valueOf(0.5),
+                false,
                 Instant.now(),
                 null,
                 "internal",
                 3,
-                1);
+                /* totalCount */ null);
         return new GroupedFinding(findingRow);
     }
 }

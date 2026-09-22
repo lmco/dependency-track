@@ -25,6 +25,7 @@ import org.dependencytrack.notification.api.templating.RenderedNotificationTempl
 import org.dependencytrack.notification.proto.v1.Notification;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -35,6 +36,8 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.Map;
 
+import static org.dependencytrack.notification.publishing.http.HttpNotificationResponses.ensureStatusCode;
+
 /**
  * @since 5.0.0
  */
@@ -43,9 +46,7 @@ final class JiraNotificationPublisher implements NotificationPublisher {
     private final JiraNotificationPublisherGlobalConfigV1 globalConfig;
     private final HttpClient httpClient;
 
-    JiraNotificationPublisher(
-            JiraNotificationPublisherGlobalConfigV1 globalConfig,
-            HttpClient httpClient) {
+    JiraNotificationPublisher(JiraNotificationPublisherGlobalConfigV1 globalConfig, HttpClient httpClient) {
         this.globalConfig = globalConfig;
         this.httpClient = httpClient;
     }
@@ -54,19 +55,22 @@ final class JiraNotificationPublisher implements NotificationPublisher {
     public void publish(NotificationPublishContext ctx, Notification notification) throws IOException {
         final var ruleConfig = ctx.ruleConfig(JiraNotificationPublisherRuleConfigV1.class);
 
-        final RenderedNotificationTemplate renderedTemplate = ctx.templateRenderer().render(
-                notification,
-                Map.ofEntries(
-                        Map.entry("jiraProjectKey", ruleConfig.getProjectKey()),
-                        Map.entry("jiraTicketType", ruleConfig.getIssueType())));
+        final RenderedNotificationTemplate renderedTemplate = ctx.templateRenderer()
+                .render(
+                        notification,
+                        Map.ofEntries(
+                                Map.entry("jiraProjectKey", ruleConfig.getProjectKey()),
+                                Map.entry("jiraTicketType", ruleConfig.getIssueType())));
         if (renderedTemplate == null) {
             throw new IllegalStateException("No template configured");
         }
 
         final String authHeader;
         if (globalConfig.getUsername() != null) {
-            final var credentials = Base64.getEncoder().encodeToString(
-                    "%s:%s".formatted(globalConfig.getUsername(), globalConfig.getPasswordOrToken()).getBytes());
+            final var credentials = Base64.getEncoder()
+                    .encodeToString("%s:%s"
+                            .formatted(globalConfig.getUsername(), globalConfig.getPasswordOrToken())
+                            .getBytes());
             authHeader = "Basic " + credentials;
         } else {
             authHeader = "Bearer " + globalConfig.getPasswordOrToken();
@@ -80,9 +84,9 @@ final class JiraNotificationPublisher implements NotificationPublisher {
                 .timeout(Duration.ofSeconds(10))
                 .build();
 
-        final HttpResponse<?> response;
         try {
-            response = httpClient.send(request, BodyHandlers.discarding());
+            final HttpResponse<InputStream> response = httpClient.send(request, BodyHandlers.ofInputStream());
+            ensureStatusCode(response, 201, "Request failed with retryable response code: ");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RetryablePublishException("Interrupted while sending request", e);
@@ -90,11 +94,5 @@ final class JiraNotificationPublisher implements NotificationPublisher {
             RetryablePublishException.throwIfRetryableNetworkError(e, "Request failed while sending notification");
             throw e;
         }
-
-        if (response.statusCode() != 201) {
-            throw new IllegalStateException(
-                    "Request failed with retryable response code: " + response.statusCode());
-        }
     }
-
 }

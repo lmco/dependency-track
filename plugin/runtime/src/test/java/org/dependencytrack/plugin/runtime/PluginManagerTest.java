@@ -23,10 +23,14 @@ import org.dependencytrack.plugin.api.ExtensionFactory;
 import org.dependencytrack.plugin.api.ExtensionPoint;
 import org.dependencytrack.plugin.api.Plugin;
 import org.dependencytrack.plugin.api.storage.KeyValueStore;
+import org.dependencytrack.testing.database.TestDatabaseExtension;
 import org.eclipse.microprofile.config.ConfigProvider;
+import org.jdbi.v3.core.Jdbi;
+import org.jdbi.v3.postgres.PostgresPlugin;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 import java.net.http.HttpClient;
 import java.util.List;
@@ -35,11 +39,15 @@ import java.util.SequencedCollection;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
-class PluginManagerTest extends AbstractDatabaseTest {
+class PluginManagerTest {
 
-    interface UnknownExtensionPoint extends ExtensionPoint {
-    }
+    @RegisterExtension
+    private static final TestDatabaseExtension database = new TestDatabaseExtension();
 
+    interface UnknownExtensionPoint extends ExtensionPoint {}
+
+    private final Jdbi jdbi = Jdbi.create(database.jdbcUrl(), database.username(), database.password())
+            .installPlugin(new PostgresPlugin());
     private PluginManager pluginManager;
 
     @BeforeEach
@@ -47,7 +55,7 @@ class PluginManagerTest extends AbstractDatabaseTest {
         pluginManager = new PluginManager(
                 ConfigProvider.getConfig(),
                 new NoopCacheManager(),
-                secretName -> null,
+                _ -> null,
                 jdbi,
                 HttpClient.newHttpClient(),
                 List.of(TestExtensionPoint.class));
@@ -63,16 +71,14 @@ class PluginManagerTest extends AbstractDatabaseTest {
 
     @Test
     void testGetLoadedPlugins() {
-        final SequencedCollection<Plugin> loadedPlugins =
-                pluginManager.getLoadedPlugins();
+        final SequencedCollection<Plugin> loadedPlugins = pluginManager.getLoadedPlugins();
         assertThat(loadedPlugins).isNotEmpty();
         assertThat(loadedPlugins).isUnmodifiable();
     }
 
     @Test
     void testGetExtensionByName() {
-        final TestExtensionPoint extension =
-                pluginManager.getExtension(TestExtensionPoint.class, "dummy");
+        final TestExtensionPoint extension = pluginManager.getExtension(TestExtensionPoint.class, "dummy");
         assertThat(extension).isNotNull();
     }
 
@@ -87,8 +93,8 @@ class PluginManagerTest extends AbstractDatabaseTest {
     void testGetFactories() {
         final SequencedCollection<ExtensionFactory<TestExtensionPoint>> factories =
                 pluginManager.getFactories(TestExtensionPoint.class);
-        assertThat(factories).satisfiesExactly(factory ->
-                assertThat(factory).isExactlyInstanceOf(DummyTestExtensionFactory.class));
+        assertThat(factories)
+                .satisfiesExactly(factory -> assertThat(factory).isExactlyInstanceOf(DummyTestExtensionFactory.class));
     }
 
     @Test
@@ -99,8 +105,7 @@ class PluginManagerTest extends AbstractDatabaseTest {
 
     @Test
     void testGetKVStore() {
-        final KeyValueStore kvStore =
-                pluginManager.getKVStore(TestExtensionPoint.class, "dummy");
+        final KeyValueStore kvStore = pluginManager.getKVStore(TestExtensionPoint.class, "dummy");
         assertThat(kvStore).isInstanceOf(KeyValueStoreImpl.class);
     }
 
@@ -122,5 +127,4 @@ class PluginManagerTest extends AbstractDatabaseTest {
                 .isThrownBy(() -> pluginManager.loadPlugins(List.of(new DummyPlugin())))
                 .withMessage("Plugins were already loaded; Unload them first");
     }
-
 }

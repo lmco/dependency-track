@@ -31,6 +31,14 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.dependencytrack.auth.Permissions;
+import org.dependencytrack.model.ConfigPropertyConstants;
+import org.dependencytrack.model.ConfigPropertyVisibility;
+import org.dependencytrack.persistence.QueryManager;
+import org.dependencytrack.resources.v1.vo.ConfigPropertyResponse;
+import org.dependencytrack.resources.v1.vo.UpdateConfigPropertyRequest;
+import org.dependencytrack.secret.management.SecretManager;
+
 import jakarta.inject.Inject;
 import jakarta.validation.Validator;
 import jakarta.ws.rs.Consumes;
@@ -41,13 +49,11 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import org.dependencytrack.auth.Permissions;
-import org.dependencytrack.model.ConfigPropertyConstants;
-import org.dependencytrack.persistence.QueryManager;
-import org.dependencytrack.secret.management.SecretManager;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * JAX-RS resources for processing ConfigProperties
@@ -57,10 +63,7 @@ import java.util.List;
  */
 @Path("/v1/configProperty")
 @Tag(name = "configProperty")
-@SecurityRequirements({
-        @SecurityRequirement(name = "ApiKeyAuth"),
-        @SecurityRequirement(name = "BearerAuth")
-})
+@SecurityRequirements({@SecurityRequirement(name = "ApiKeyAuth"), @SecurityRequirement(name = "BearerAuth")})
 public class ConfigPropertyResource extends AbstractConfigPropertyResource {
 
     @Inject
@@ -72,52 +75,59 @@ public class ConfigPropertyResource extends AbstractConfigPropertyResource {
     @Produces(MediaType.APPLICATION_JSON)
     @Operation(
             summary = "Returns a list of all ConfigProperties for the specified groupName",
-            description = "<p>Requires permission <strong>SYSTEM_CONFIGURATION</strong> or <strong>SYSTEM_CONFIGURATION_READ</strong></p>"
-    )
-    @ApiResponses(value = {
-            @ApiResponse(
-                    responseCode = "200",
-                    description = "A list of all ConfigProperties for the specified groupName",
-                    content = @Content(array = @ArraySchema(schema = @Schema(implementation = ConfigProperty.class)))
-            ),
-            @ApiResponse(responseCode = "401", description = "Unauthorized")
-    })
+            description =
+                    "<p>Requires permission <strong>SYSTEM_CONFIGURATION</strong> or <strong>SYSTEM_CONFIGURATION_READ</strong></p>")
+    @ApiResponses(
+            value = {
+                @ApiResponse(
+                        responseCode = "200",
+                        description = "A list of all ConfigProperties for the specified groupName",
+                        content =
+                                @Content(
+                                        array =
+                                                @ArraySchema(
+                                                        schema =
+                                                                @Schema(
+                                                                        implementation =
+                                                                                ConfigPropertyResponse.class)))),
+                @ApiResponse(responseCode = "401", description = "Unauthorized")
+            })
     @PermissionRequired({Permissions.Constants.SYSTEM_CONFIGURATION, Permissions.Constants.SYSTEM_CONFIGURATION_READ})
     public Response getConfigProperties() {
-        try (QueryManager qm = new QueryManager(getAlpineRequest())) {
+        try (final var qm = new QueryManager(getAlpineRequest())) {
             final List<ConfigProperty> configProperties = qm.getConfigProperties();
-            return Response.ok(configProperties).build();
+            final List<ConfigPropertyResponse> response =
+                    configProperties.stream().map(ConfigPropertyResponse::of).toList();
+            return Response.ok(response).build();
         }
     }
 
     @POST
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    @Operation(summary = "Updates a config property",
-            description = "<p>Requires permission <strong>SYSTEM_CONFIGURATION</strong> or <strong>SYSTEM_CONFIGURATION_UPDATE</strong></p>"
-    )
-    @ApiResponses(value = {
-            @ApiResponse(
-                    responseCode = "200",
-                    description = "The updated config property",
-                    content = @Content(schema = @Schema(implementation = ConfigProperty.class))
-            ),
-            @ApiResponse(responseCode = "401", description = "Unauthorized"),
-            @ApiResponse(responseCode = "404", description = "The config property could not be found"),
-    })
+    @Operation(
+            summary = "Updates a config property",
+            description =
+                    "<p>Requires permission <strong>SYSTEM_CONFIGURATION</strong> or <strong>SYSTEM_CONFIGURATION_UPDATE</strong></p>")
+    @ApiResponses(
+            value = {
+                @ApiResponse(
+                        responseCode = "200",
+                        description = "The updated config property",
+                        content = @Content(schema = @Schema(implementation = ConfigPropertyResponse.class))),
+                @ApiResponse(responseCode = "401", description = "Unauthorized"),
+                @ApiResponse(responseCode = "404", description = "The config property could not be found"),
+            })
     @PermissionRequired({Permissions.Constants.SYSTEM_CONFIGURATION, Permissions.Constants.SYSTEM_CONFIGURATION_UPDATE})
-    public Response updateConfigProperty(ConfigProperty json) {
+    public Response updateConfigProperty(UpdateConfigPropertyRequest request) {
         final Validator validator = super.getValidator();
         failOnValidationError(
-                validator.validateProperty(json, "groupName"),
-                validator.validateProperty(json, "propertyName"),
-                validator.validateProperty(json, "propertyValue")
-        );
-        try (QueryManager qm = new QueryManager(getAlpineRequest())) {
-            return qm.callInTransaction(() -> {
-                final ConfigProperty property = qm.getConfigProperty(json.getGroupName(), json.getPropertyName());
-                return updatePropertyValue(qm, json, property);
-            });
+                validator.validateProperty(request, "groupName"),
+                validator.validateProperty(request, "propertyName"),
+                validator.validateProperty(request, "propertyValue"));
+
+        try (final var qm = new QueryManager(getAlpineRequest())) {
+            return qm.callInTransaction(() -> applyUpdate(qm, request));
         }
     }
 
@@ -127,36 +137,50 @@ public class ConfigPropertyResource extends AbstractConfigPropertyResource {
     @Produces(MediaType.APPLICATION_JSON)
     @Operation(
             summary = "Updates an array of config properties",
-            description = "<p>Requires permission <strong>SYSTEM_CONFIGURATION</strong> or <strong>SYSTEM_CONFIGURATION_UPDATE</strong></p>"
-    )
-    @ApiResponses(value = {
-            @ApiResponse(
-                    responseCode = "200",
-                    description = "The updated config properties",
-                    content = @Content(array = @ArraySchema(schema = @Schema(implementation = ConfigProperty.class)))
-            ),
-            @ApiResponse(responseCode = "401", description = "Unauthorized"),
-            @ApiResponse(responseCode = "404", description = "One or more config properties could not be found"),
-    })
+            description =
+                    "<p>Requires permission <strong>SYSTEM_CONFIGURATION</strong> or <strong>SYSTEM_CONFIGURATION_UPDATE</strong></p>")
+    @ApiResponses(
+            value = {
+                @ApiResponse(
+                        responseCode = "200",
+                        description = """
+                            The updated config properties. \
+                            Each array element is either a successfully updated `ConfigPropertyResponse`, \
+                            or an error message string if the entry's property could not be found, \
+                            is read-only, or its requested value is invalid.\
+                            """,
+                        content =
+                                @Content(
+                                        array =
+                                                @ArraySchema(
+                                                        schema =
+                                                                @Schema(
+                                                                        anyOf = {
+                                                                            ConfigPropertyResponse.class,
+                                                                            String.class
+                                                                        })))),
+                @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            })
     @PermissionRequired({Permissions.Constants.SYSTEM_CONFIGURATION, Permissions.Constants.SYSTEM_CONFIGURATION_UPDATE})
-    public Response updateConfigProperty(List<ConfigProperty> list) {
+    public Response updateConfigProperty(List<UpdateConfigPropertyRequest> requests) {
         final Validator validator = super.getValidator();
-        for (ConfigProperty item : list) {
+        for (final UpdateConfigPropertyRequest item : requests) {
             failOnValidationError(
                     validator.validateProperty(item, "groupName"),
                     validator.validateProperty(item, "propertyName"),
-                    validator.validateProperty(item, "propertyValue")
-            );
+                    validator.validateProperty(item, "propertyValue"));
         }
-        List<Object> returnList = new ArrayList<>();
-        try (QueryManager qm = new QueryManager(getAlpineRequest())) {
+
+        final var returnList = new ArrayList<>();
+        try (final var qm = new QueryManager(getAlpineRequest())) {
             qm.runInTransaction(() -> {
-                for (ConfigProperty item : list) {
-                    final ConfigProperty property = qm.getConfigProperty(item.getGroupName(), item.getPropertyName());
-                    returnList.add(updatePropertyValue(qm, item, property).getEntity());
+                for (final UpdateConfigPropertyRequest request : requests) {
+                    final Response itemResponse = applyUpdate(qm, request);
+                    returnList.add(itemResponse.getEntity());
                 }
             });
         }
+
         return Response.ok(returnList).build();
     }
 
@@ -164,26 +188,91 @@ public class ConfigPropertyResource extends AbstractConfigPropertyResource {
     @Path("/public/{groupName}/{propertyName}")
     @Produces(MediaType.APPLICATION_JSON)
     @Operation(summary = "Returns a public ConfigProperty", description = "<p></p>")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Public ConfigProperty returned", content = @Content(schema = @Schema(implementation = ConfigProperty.class))),
-            @ApiResponse(responseCode = "403", description = "This is not a public visible ConfigProperty")
-    })
+    @ApiResponses(
+            value = {
+                @ApiResponse(
+                        responseCode = "200",
+                        description = "Public ConfigProperty returned",
+                        content = @Content(schema = @Schema(implementation = ConfigPropertyResponse.class))),
+                @ApiResponse(responseCode = "403", description = "This is not a public visible ConfigProperty"),
+                @ApiResponse(responseCode = "404", description = "The config property could not be found")
+            })
     @AuthenticationNotRequired
     public Response getPublicConfigProperty(
-            @Parameter(description = "The group name of the value to retrieve", required = true)
-            @PathParam("groupName") String groupName,
+            @Parameter(description = "The group name of the value to retrieve", required = true) @PathParam("groupName")
+                    String groupName,
             @Parameter(description = "The property name of the value to retrieve", required = true)
-            @PathParam("propertyName") String propertyName) {
-        ConfigProperty configProperty = new ConfigProperty();
-        configProperty.setGroupName(groupName);
-        configProperty.setPropertyName(propertyName);
-        ConfigPropertyConstants publicConfigProperty = ConfigPropertyConstants.ofProperty(configProperty);
-        if (!publicConfigProperty.getIsPublic()) {
+                    @PathParam("propertyName")
+                    String propertyName) {
+        return getClassifiedConfigProperty(groupName, propertyName, EnumSet.of(ConfigPropertyVisibility.PUBLIC));
+    }
+
+    @GET
+    @Path("/internal/{groupName}/{propertyName}")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(summary = "Returns an internal ConfigProperty", description = """
+                    <p>
+                      Requires authentication, but no permission.
+                      Returns both internal and public properties
+                    </p>""")
+    @ApiResponses(
+            value = {
+                @ApiResponse(
+                        responseCode = "200",
+                        description = "The internal config property",
+                        content = @Content(schema = @Schema(implementation = ConfigPropertyResponse.class))),
+                @ApiResponse(responseCode = "401", description = "Unauthorized"),
+                @ApiResponse(responseCode = "403", description = "Not an internal- or public-readable config property"),
+                @ApiResponse(responseCode = "404", description = "The config property could not be found")
+            })
+    public Response getInternalConfigProperty(
+            @Parameter(description = "The group name of the value to retrieve", required = true) @PathParam("groupName")
+                    String groupName,
+            @Parameter(description = "The property name of the value to retrieve", required = true)
+                    @PathParam("propertyName")
+                    String propertyName) {
+        return getClassifiedConfigProperty(
+                groupName,
+                propertyName,
+                EnumSet.of(ConfigPropertyVisibility.PUBLIC, ConfigPropertyVisibility.INTERNAL));
+    }
+
+    private Response getClassifiedConfigProperty(
+            String groupName, String propertyName, Set<ConfigPropertyVisibility> allowedVisibilities) {
+        final var lookup = new ConfigProperty();
+        lookup.setGroupName(groupName);
+        lookup.setPropertyName(propertyName);
+
+        final var wellKnownProperty = ConfigPropertyConstants.ofProperty(lookup);
+        if (wellKnownProperty == null || !allowedVisibilities.contains(wellKnownProperty.getVisibility())) {
             return Response.status(Response.Status.FORBIDDEN).build();
         }
-        try (QueryManager qm = new QueryManager(getAlpineRequest())) {
-            ConfigProperty property = qm.getConfigProperty(groupName, propertyName);
-            return Response.ok(property).build();
+
+        try (final var qm = new QueryManager(getAlpineRequest())) {
+            final ConfigProperty property = qm.getConfigProperty(groupName, propertyName);
+            if (property == null) {
+                return Response.status(Response.Status.NOT_FOUND)
+                        .entity("The config property could not be found.")
+                        .build();
+            }
+
+            return Response.ok(ConfigPropertyResponse.of(property)).build();
         }
+    }
+
+    private Response applyUpdate(QueryManager qm, UpdateConfigPropertyRequest request) {
+        final ConfigProperty property = qm.getConfigProperty(request.groupName(), request.propertyName());
+        if (property == null) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity("The config property could not be found.")
+                    .build();
+        }
+
+        final Response validationError = applyPropertyValue(request.propertyValue(), property);
+        if (validationError != null) {
+            return validationError;
+        }
+
+        return Response.ok(ConfigPropertyResponse.of(property)).build();
     }
 }

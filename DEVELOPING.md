@@ -2,6 +2,11 @@
 
 > Please also read [`CONTRIBUTING.md`](./CONTRIBUTING.md) and [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md).
 
+> [!TIP]
+> Contributor documentation lives in [`docs/`](./docs/). Start with
+> [`docs/PROJECT_STRUCTURE.md`](./docs/PROJECT_STRUCTURE.md) for the module layout,
+> and see [`docs/adr/`](./docs/adr/) for Architecture Decision Records.
+
 > [!IMPORTANT]
 > Substantial changes must be accompanied by an [Architecture Decision Record](./docs/adr/).
 > See the [criteria in `CONTRIBUTING.md`](./CONTRIBUTING.md#architecture-decision-records) for when
@@ -115,6 +120,31 @@ make build-image
 
 This produces the image `ghcr.io/dependencytrack/apiserver:local`.
 
+## Code Style
+
+Java sources are formatted with [palantir-java-format](https://github.com/palantir/palantir-java-format)
+and checked with [Spotless](https://github.com/diffplug/spotless), which also enforces the license header,
+import order, and removal of unused imports. POMs are formatted with [SortPom](https://github.com/Ekryd/sortpom).
+Both run in Maven's `validate` phase, so `make lint-java` and CI cover them:
+
+```shell
+make lint-java
+```
+
+Most findings can be fixed automatically using:
+
+```shell
+make format-java
+```
+
+Run this before committing. IntelliJ's built-in formatter does not match palantir-java-format,
+so reformatting from the IDE alone will fail the check. Install the
+[palantir-java-format plugin](https://plugins.jetbrains.com/plugin/13180-palantir-java-format),
+which IntelliJ offers on first open. Enable it per project under
+*Settings* > *palantir-java-format Settings*. `.idea/codeStyles` sets the import order.
+
+`make format-java` is the source of truth.
+
 ## Testing
 
 Run all tests:
@@ -150,7 +180,8 @@ make test-e2e
 ## Dev Mode
 
 Dev mode launches the API server with auto-provisioned containers for PostgreSQL
-and the frontend. Containers are created on startup and disposed of on shutdown.
+and the frontend. Containers are created on startup and, unless reuse is enabled
+(see [Container Reuse](#container-reuse)), disposed of on shutdown.
 
 ```shell
 make apiserver-dev
@@ -160,6 +191,21 @@ The API server will be available at `http://localhost:8080`.
 Frontend and PostgreSQL ports are logged during startup.
 
 Dev mode specific configuration can be made in [`application-dev.properties`](apiserver/src/main/resources/application-dev.properties).
+
+### Container Reuse
+
+Dev mode is configured to reuse its containers across restarts, so PostgreSQL
+state (schema and data) is preserved and startup is faster. Reuse only takes
+effect once it has been opted into globally, by setting either `testcontainers.reuse.enable=true`
+in `~/.testcontainers.properties`, or the `TESTCONTAINERS_REUSE_ENABLE=true` environment variable.
+Without it, containers are disposed on shutdown as usual.
+See the [Testcontainers reuse docs](https://java.testcontainers.org/features/reuse/#how-to-use-it).
+
+To remove reused (or otherwise stale) dev services containers, e.g. to start from a clean slate, run:
+
+```shell
+make apiserver-dev-remove-containers
+```
 
 ## DataNucleus Bytecode Enhancement
 
@@ -206,6 +252,10 @@ For repeatable migrations, edit the relevant `R__*.sql` file directly, no new fi
 > Do not modify versioned migrations already merged to `main`.
 > Flyway rejects checksum mismatches on existing deployments.
 > Add a new migration instead.
+
+> [!NOTE]
+> Migrations run with `outOfOrder=true` so they can be backported to patch branches
+> without blocking the next minor upgrade. See [`RELEASING.md`](./RELEASING.md#4-flyway-migrations).
 
 ### Linting Migrations
 

@@ -28,9 +28,11 @@ import org.dependencytrack.model.AnalysisResponse;
 import org.dependencytrack.model.AnalysisState;
 import org.dependencytrack.model.Component;
 import org.dependencytrack.model.Vulnerability;
+import org.dependencytrack.model.VulnerabilityKey;
 import org.dependencytrack.notification.JdoNotificationEmitter;
 import org.dependencytrack.notification.NotificationModelConverter;
 import org.dependencytrack.persistence.command.MakeAnalysisCommand;
+import org.dependencytrack.util.AnalysisCommentFormatter.AnalysisCommentField;
 
 import javax.jdo.PersistenceManager;
 import javax.jdo.Query;
@@ -39,10 +41,10 @@ import java.util.Date;
 import java.util.List;
 
 import static org.dependencytrack.notification.api.NotificationFactory.createVulnerabilityAnalysisDecisionChangeNotification;
+import static org.dependencytrack.util.AnalysisCommentFormatter.formatComment;
 import static org.dependencytrack.util.PersistenceUtil.assertPersistent;
 
 public class AnalysisQueryManager extends QueryManager {
-
 
     /**
      * Constructs a new QueryManager.
@@ -71,7 +73,8 @@ public class AnalysisQueryManager extends QueryManager {
      * @return a Analysis object, or null if not found
      */
     public Analysis getAnalysis(Component component, Vulnerability vulnerability) {
-        final Query<Analysis> query = pm.newQuery(Analysis.class, "component == :component && vulnerability == :vulnerability");
+        final Query<Analysis> query =
+                pm.newQuery(Analysis.class, "component == :component && vulnerability == :vulnerability");
         query.setRange(0, 1);
         return singleResult(query.execute(component, vulnerability));
     }
@@ -108,11 +111,13 @@ public class AnalysisQueryManager extends QueryManager {
                 stateChanged = true;
             }
             if (command.justification() != null && command.justification() != analysis.getAnalysisJustification()) {
-                auditTrailComments.add("Justification: %s → %s".formatted(analysis.getAnalysisJustification(), command.justification()));
+                auditTrailComments.add("Justification: %s → %s"
+                        .formatted(analysis.getAnalysisJustification(), command.justification()));
                 analysis.setAnalysisJustification(command.justification());
             }
             if (command.response() != null && command.response() != analysis.getAnalysisResponse()) {
-                auditTrailComments.add("Vendor Response: %s → %s".formatted(analysis.getAnalysisResponse(), command.response()));
+                auditTrailComments.add(
+                        "Vendor Response: %s → %s".formatted(analysis.getAnalysisResponse(), command.response()));
                 analysis.setAnalysisResponse(command.response());
             }
             if (command.details() != null && !command.details().equals(analysis.getAnalysisDetails())) {
@@ -124,11 +129,22 @@ public class AnalysisQueryManager extends QueryManager {
                 analysis.setSuppressed(command.suppress());
                 suppressionChanged = true;
             }
+            if (command.owaspVector() != null && !command.owaspVector().equals(analysis.getOwaspVector())) {
+                auditTrailComments.add(formatComment(
+                        AnalysisCommentField.OWASP_VECTOR, analysis.getOwaspVector(), command.owaspVector()));
+                analysis.setOwaspVector(command.owaspVector());
+            }
+            if (command.owaspScore() != null
+                    && (analysis.getOwaspScore() == null
+                            || command.owaspScore().compareTo(analysis.getOwaspScore()) != 0)) {
+                auditTrailComments.add(formatComment(
+                        AnalysisCommentField.OWASP_SCORE, analysis.getOwaspScore(), command.owaspScore()));
+                analysis.setOwaspScore(command.owaspScore());
+            }
 
-            final List<String> comments =
-                    !command.options().contains(MakeAnalysisCommand.Option.OMIT_AUDIT_TRAIL)
-                            ? auditTrailComments
-                            : new ArrayList<>();
+            final List<String> comments = !command.options().contains(MakeAnalysisCommand.Option.OMIT_AUDIT_TRAIL)
+                    ? auditTrailComments
+                    : new ArrayList<>();
             if (command.comment() != null) {
                 comments.add(command.comment());
             }
@@ -137,8 +153,13 @@ public class AnalysisQueryManager extends QueryManager {
 
             if (!command.options().contains(MakeAnalysisCommand.Option.OMIT_NOTIFICATION)
                     && (stateChanged || suppressionChanged)) {
-                new JdoNotificationEmitter(this).emit(
-                        createVulnerabilityAnalysisDecisionChangeNotification(
+                // NB: KEV is a transient field and must be computed ad-hoc.
+                final boolean isKev = !super.getKev(List.of(VulnerabilityKey.of(analysis.getVulnerability())))
+                        .isEmpty();
+                analysis.getVulnerability().setKev(isKev);
+
+                new JdoNotificationEmitter(this)
+                        .emit(createVulnerabilityAnalysisDecisionChangeNotification(
                                 NotificationModelConverter.convert(analysis.getProject()),
                                 NotificationModelConverter.convert(analysis.getComponent()),
                                 NotificationModelConverter.convert(analysis.getVulnerability()),
@@ -151,10 +172,7 @@ public class AnalysisQueryManager extends QueryManager {
         });
     }
 
-    private void createAnalysisComments(
-            final Analysis analysis,
-            final String commenter,
-            final List<String> comments) {
+    private void createAnalysisComments(final Analysis analysis, final String commenter, final List<String> comments) {
         assertPersistent(analysis, "analysis must be persistent");
 
         if (comments == null || comments.isEmpty()) {
@@ -169,8 +187,9 @@ public class AnalysisQueryManager extends QueryManager {
                 case User user -> user.getUsername();
                 case ApiKey apiKey -> apiKey.getTeams().get(0).getName();
                 case null -> null;
-                default -> throw new IllegalStateException(
-                        "Unexpected principal type: " + principal.getClass().getName());
+                default ->
+                    throw new IllegalStateException(
+                            "Unexpected principal type: " + principal.getClass().getName());
             };
         } else {
             commenterToUse = commenter;
@@ -197,5 +216,4 @@ public class AnalysisQueryManager extends QueryManager {
             }
         });
     }
-
 }

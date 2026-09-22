@@ -23,6 +23,8 @@ import io.smallrye.config.SmallRyeConfigBuilder;
 import org.dependencytrack.filestorage.api.FileStorage;
 import org.dependencytrack.filestorage.proto.v1.FileMetadata;
 import org.eclipse.microprofile.config.Config;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.junit.jupiter.Container;
@@ -43,36 +45,32 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 class S3FileStorageTest {
 
     @Container
-    private static final S3MockContainer s3MockContainer =
-            new S3MockContainer("5.0.0")
-                    .withInitialBuckets("test");
-
-    @Test
-    void shouldHaveNameS3() {
-        final var provider = new S3FileStorageProvider();
-        assertThat(provider.name()).isEqualTo("s3");
-    }
+    private static final S3MockContainer s3MockContainer = new S3MockContainer("5.0.0").withInitialBuckets("test");
 
     @Test
     void shouldThrowWhenBucketDoesNotExist() {
         assertThatExceptionOfType(IllegalStateException.class)
-                .isThrownBy(() -> createStorage(Map.ofEntries(
-                        Map.entry("dt.file-storage.s3.endpoint", s3MockContainer.getHttpEndpoint()),
-                        Map.entry("dt.file-storage.s3.access-key", "foo"),
-                        Map.entry("dt.file-storage.s3.secret-key", "bar"),
-                        Map.entry("dt.file-storage.s3.bucket", "does-not-exist"))))
+                .isThrownBy(() -> {
+                    try (final FileStorage _ = createStorage(Map.ofEntries(
+                            Map.entry("dt.file-storage.s3.endpoint", s3MockContainer.getHttpEndpoint()),
+                            Map.entry("dt.file-storage.s3.access-key", "foo"),
+                            Map.entry("dt.file-storage.s3.secret-key", "bar"),
+                            Map.entry("dt.file-storage.s3.bucket", "does-not-exist")))) {}
+                })
                 .withMessage("Bucket does-not-exist does not exist");
     }
 
     @Test
     void shouldThrowWhenBucketExistenceCheckFailed() {
         assertThatExceptionOfType(IllegalStateException.class)
-                .isThrownBy(() -> createStorage(Map.ofEntries(
-                        Map.entry("dt.file-storage.s3.endpoint", "http://localhost:1"),
-                        Map.entry("dt.file-storage.s3.access-key", "foo"),
-                        Map.entry("dt.file-storage.s3.secret-key", "bar"),
-                        Map.entry("dt.file-storage.s3.bucket", "does-not-exist"),
-                        Map.entry("dt.file-storage.s3.connect-timeout-ms", "500"))))
+                .isThrownBy(() -> {
+                    try (final FileStorage _ = createStorage(Map.ofEntries(
+                            Map.entry("dt.file-storage.s3.endpoint", "http://localhost:1"),
+                            Map.entry("dt.file-storage.s3.access-key", "foo"),
+                            Map.entry("dt.file-storage.s3.secret-key", "bar"),
+                            Map.entry("dt.file-storage.s3.bucket", "does-not-exist"),
+                            Map.entry("dt.file-storage.s3.connect-timeout-ms", "500")))) {}
+                })
                 .withMessage("Failed to determine if bucket does-not-exist exists");
     }
 
@@ -83,7 +81,8 @@ class S3FileStorageTest {
             assertThat(fileMetadata.getProviderName()).isEqualTo("s3");
             assertThat(fileMetadata.getLocation()).isEqualTo("s3://test/foo/bar");
             assertThat(fileMetadata.getMediaType()).isEqualTo("application/octet-stream");
-            assertThat(fileMetadata.getSha256Digest()).isEqualTo("018e647e32f8c2b320b731ddd7de9842616209d93a3aeeea985a48b7fe0e5eda");
+            assertThat(fileMetadata.getSha256Digest())
+                    .isEqualTo("018e647e32f8c2b320b731ddd7de9842616209d93a3aeeea985a48b7fe0e5eda");
 
             final InputStream fileStream = storage.get(fileMetadata);
             assertThat(fileStream).isNotNull();
@@ -118,79 +117,75 @@ class S3FileStorageTest {
     void getShouldThrowWhenFileDoesNotExist() throws Exception {
         try (final FileStorage storage = createStorage()) {
             assertThatExceptionOfType(NoSuchFileException.class)
-                    .isThrownBy(() -> storage.get(
-                            FileMetadata.newBuilder()
-                                    .setLocation("s3://test/foo/bar")
-                                    .setSha256Digest("some-digest")
-                                    .build()));
+                    .isThrownBy(() -> storage.get(FileMetadata.newBuilder()
+                            .setLocation("s3://test/foo/bar")
+                            .setSha256Digest("some-digest")
+                            .build()));
         }
     }
 
     @Test
     void deleteShouldReturnTrueWhenFileDoesNotExist() throws Exception {
         try (final FileStorage storage = createStorage()) {
-            assertThat(storage.delete(
-                    FileMetadata.newBuilder()
+            assertThat(storage.delete(FileMetadata.newBuilder()
                             .setLocation("s3://test/foo")
-                            .build())).isTrue();
+                            .build()))
+                    .isTrue();
         }
     }
 
     @Nested
     class WhenHostIsUnavailable {
 
-        @Container
-        private final S3MockContainer ephemeralContainer =
-                new S3MockContainer("5.0.0")
-                        .withInitialBuckets("test");
+        private static S3MockContainer ephemeralContainer;
+        private static FileStorage storage;
+        private static FileMetadata storedFileMetadata;
 
-        @Test
-        void storeShouldThrowWhenHostIsUnavailable() throws Exception {
-            try (final FileStorage storage = createEphemeralStorage()) {
-                ephemeralContainer.stop();
+        @BeforeAll
+        static void beforeAll() throws Exception {
+            ephemeralContainer = new S3MockContainer("5.0.0").withInitialBuckets("test");
+            ephemeralContainer.start();
 
-                assertThatExceptionOfType(IOException.class)
-                        .isThrownBy(() -> storage.store("foo", new ByteArrayInputStream("bar".getBytes())));
-            }
-        }
-
-        @Test
-        void getShouldThrowWhenHostIsUnavailable() throws Exception {
-            try (final FileStorage storage = createEphemeralStorage()) {
-                final FileMetadata fileMetadata = storage.store("foo", new ByteArrayInputStream("bar".getBytes()));
-
-                ephemeralContainer.stop();
-
-                assertThatExceptionOfType(IOException.class)
-                        .isThrownBy(() -> storage.get(fileMetadata))
-                        .withRootCauseInstanceOf(ConnectException.class);
-            }
-        }
-
-        @Test
-        void deleteShouldThrowWhenHostIsUnavailable() throws Exception {
-            try (final FileStorage storage = createEphemeralStorage()) {
-                final FileMetadata fileMetadata = storage.store("foo", new ByteArrayInputStream("bar".getBytes()));
-
-                ephemeralContainer.stop();
-
-                assertThatExceptionOfType(IOException.class)
-                        .isThrownBy(() -> storage.delete(fileMetadata))
-                        .withRootCauseInstanceOf(ConnectException.class);
-            }
-        }
-
-        private FileStorage createEphemeralStorage() {
-            return createStorage(Map.ofEntries(
+            storage = createStorage(Map.ofEntries(
                     Map.entry("dt.file-storage.s3.endpoint", ephemeralContainer.getHttpEndpoint()),
                     Map.entry("dt.file-storage.s3.access-key", "foo"),
                     Map.entry("dt.file-storage.s3.secret-key", "bar"),
-                    Map.entry("dt.file-storage.s3.bucket", "test"),
-                    Map.entry("dt.file-storage.s3.connect-timeout-ms", "5000"),
-                    Map.entry("dt.file-storage.s3.read-timeout-ms", "5000"),
-                    Map.entry("dt.file-storage.s3.write-timeout-ms", "5000")));
+                    Map.entry("dt.file-storage.s3.bucket", "test")));
+
+            storedFileMetadata = storage.store("foo", new ByteArrayInputStream("bar".getBytes()));
+
+            ephemeralContainer.stop();
         }
 
+        @AfterAll
+        static void afterAll() throws Exception {
+            if (storage != null) {
+                storage.close();
+            }
+            if (ephemeralContainer != null) {
+                ephemeralContainer.close();
+            }
+        }
+
+        @Test
+        void storeShouldThrowWhenHostIsUnavailable() {
+            assertThatExceptionOfType(IOException.class)
+                    .isThrownBy(() -> storage.store("foo", new ByteArrayInputStream("bar".getBytes())));
+        }
+
+        @Test
+        void getShouldThrowWhenHostIsUnavailable() {
+            assertThatExceptionOfType(IOException.class)
+                    .isThrownBy(() -> storage.get(storedFileMetadata))
+                    .withRootCauseInstanceOf(ConnectException.class);
+        }
+
+        @Test
+        void deleteShouldThrowWhenHostIsUnavailable() {
+            assertThatExceptionOfType(IOException.class)
+                    .isThrownBy(() -> storage.delete(storedFileMetadata))
+                    .withRootCauseInstanceOf(ConnectException.class);
+        }
     }
 
     private FileStorage createStorage() {
@@ -202,10 +197,8 @@ class S3FileStorageTest {
     }
 
     private static FileStorage createStorage(Map<String, String> configValues) {
-        final Config config = new SmallRyeConfigBuilder()
-                .withDefaultValues(configValues)
-                .build();
+        final Config config =
+                new SmallRyeConfigBuilder().withDefaultValues(configValues).build();
         return new S3FileStorageProvider().create(config, ProxySelector.getDefault());
     }
-
 }

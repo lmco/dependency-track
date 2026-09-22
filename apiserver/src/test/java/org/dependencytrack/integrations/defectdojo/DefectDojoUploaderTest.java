@@ -67,8 +67,7 @@ class DefectDojoUploaderTest extends PersistenceCapableTest {
                 DEFECTDOJO_ENABLED.getPropertyName(),
                 "true",
                 IConfigProperty.PropertyType.BOOLEAN,
-                null
-        );
+                null);
         Project project = qm.createProject("ACME Example", null, "1.0", null, null, null, null, false);
         qm.createProjectProperty(
                 project,
@@ -76,8 +75,7 @@ class DefectDojoUploaderTest extends PersistenceCapableTest {
                 "defectdojo.engagementId",
                 "12345",
                 IConfigProperty.PropertyType.STRING,
-                null
-        );
+                null);
         DefectDojoUploader extension = new DefectDojoUploader(httpClient, secretManager);
         extension.setQueryManager(qm);
         Assertions.assertTrue(extension.isEnabled());
@@ -93,4 +91,26 @@ class DefectDojoUploaderTest extends PersistenceCapableTest {
         Assertions.assertFalse(extension.isProjectConfigured(project));
     }
 
+    @Test
+    void testGetGroupByReturnsNullWhenNotConfigured() {
+        Project project = qm.createProject("ACME Example", null, "1.0", null, null, null, null, false);
+        DefectDojoUploader extension = new DefectDojoUploader(httpClient, secretManager);
+        extension.setQueryManager(qm);
+        Assertions.assertNull(extension.getGroupBy(project));
+    }
+
+    @Test
+    void testGetGroupByReturnsValueWhenConfigured() {
+        Project project = qm.createProject("ACME Example", null, "1.0", null, null, null, null, false);
+        qm.createProjectProperty(
+                project,
+                DEFECTDOJO_ENABLED.getGroupName(),
+                "defectdojo.groupBy",
+                "component_name",
+                IConfigProperty.PropertyType.STRING,
+                null);
+        DefectDojoUploader extension = new DefectDojoUploader(httpClient, secretManager);
+        extension.setQueryManager(qm);
+        Assertions.assertEquals("component_name", extension.getGroupBy(project));
+    }
 }

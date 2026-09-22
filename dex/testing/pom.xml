@@ -22,76 +22,35 @@
     <parent>
         <groupId>org.dependencytrack</groupId>
         <artifactId>dex-parent</artifactId>
-        <version>5.0.3</version>
+        <version>5.1.1</version>
     </parent>
-
     <artifactId>dex-testing</artifactId>
     <packaging>jar</packaging>
-
     <name>Durable Execution :: Testing Utilities</name>
-
     <properties>
         <project.parentBaseDir>${project.basedir}/../..</project.parentBaseDir>
     </properties>
-
     <dependencies>
         <dependency>
             <groupId>org.dependencytrack</groupId>
             <artifactId>dex-engine</artifactId>
             <version>${project.version}</version>
         </dependency>
-
         <dependency>
             <groupId>org.assertj</groupId>
             <artifactId>assertj-core</artifactId>
         </dependency>
-
         <dependency>
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>
         </dependency>
-
         <dependency>
             <groupId>org.jspecify</groupId>
             <artifactId>jspecify</artifactId>
         </dependency>
-
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-api</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-core</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.postgresql</groupId>
-            <artifactId>postgresql</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-simple</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.testcontainers</groupId>
-            <artifactId>testcontainers-postgresql</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.testcontainers</groupId>
-            <artifactId>testcontainers-junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
     </dependencies>
-
 </project>

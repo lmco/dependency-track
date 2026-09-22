@@ -21,8 +21,12 @@ package org.dependencytrack.plugin.runtime;
 import org.dependencytrack.plugin.api.storage.CompareAndDeleteResult;
 import org.dependencytrack.plugin.api.storage.CompareAndPutResult;
 import org.dependencytrack.plugin.api.storage.KeyValueStore;
+import org.dependencytrack.testing.database.TestDatabaseExtension;
+import org.jdbi.v3.core.Jdbi;
 import org.jdbi.v3.core.mapper.reflect.ConstructorMapper;
+import org.jdbi.v3.postgres.PostgresPlugin;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 import java.time.Instant;
 import java.util.Collections;
@@ -33,8 +37,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 
-class KeyValueStoreImplTest extends AbstractDatabaseTest {
+class KeyValueStoreImplTest {
 
+    @RegisterExtension
+    private static final TestDatabaseExtension database = new TestDatabaseExtension();
+
+    private final Jdbi jdbi = Jdbi.create(database.jdbcUrl(), database.username(), database.password())
+            .installPlugin(new PostgresPlugin());
     private final KeyValueStore kvStore = new KeyValueStoreImpl(jdbi, "foo", "bar");
 
     @Test
@@ -64,34 +73,31 @@ class KeyValueStoreImplTest extends AbstractDatabaseTest {
             assertThat(entry.updatedAt()).isNull();
         });
 
-        kvStore.putMany(
-                Map.ofEntries(
-                        Map.entry("someKey", "someOtherValue"),
-                        Map.entry("abc", "def")));
+        kvStore.putMany(Map.ofEntries(Map.entry("someKey", "someOtherValue"), Map.entry("abc", "def")));
 
-        assertThat(getAllStoreEntries()).satisfiesExactlyInAnyOrder(
-                entry -> {
-                    assertThat(entry.extensionPoint()).isEqualTo("foo");
-                    assertThat(entry.extension()).isEqualTo("bar");
-                    assertThat(entry.key()).isEqualTo("someKey");
-                    assertThat(entry.value()).isEqualTo("someOtherValue");
-                    assertThat(entry.createdAt()).isNotNull();
-                    assertThat(entry.updatedAt()).isNotNull();
-                },
-                entry -> {
-                    assertThat(entry.extensionPoint()).isEqualTo("foo");
-                    assertThat(entry.extension()).isEqualTo("bar");
-                    assertThat(entry.key()).isEqualTo("abc");
-                    assertThat(entry.value()).isEqualTo("def");
-                    assertThat(entry.createdAt()).isNotNull();
-                    assertThat(entry.updatedAt()).isNull();
-                });
+        assertThat(getAllStoreEntries())
+                .satisfiesExactlyInAnyOrder(
+                        entry -> {
+                            assertThat(entry.extensionPoint()).isEqualTo("foo");
+                            assertThat(entry.extension()).isEqualTo("bar");
+                            assertThat(entry.key()).isEqualTo("someKey");
+                            assertThat(entry.value()).isEqualTo("someOtherValue");
+                            assertThat(entry.createdAt()).isNotNull();
+                            assertThat(entry.updatedAt()).isNotNull();
+                        },
+                        entry -> {
+                            assertThat(entry.extensionPoint()).isEqualTo("foo");
+                            assertThat(entry.extension()).isEqualTo("bar");
+                            assertThat(entry.key()).isEqualTo("abc");
+                            assertThat(entry.value()).isEqualTo("def");
+                            assertThat(entry.createdAt()).isNotNull();
+                            assertThat(entry.updatedAt()).isNull();
+                        });
     }
 
     @Test
     void putManyShouldDoNothingWhenKvPairsIsEmpty() {
-        assertThatNoException()
-                .isThrownBy(() -> kvStore.putMany(Collections.emptyMap()));
+        assertThatNoException().isThrownBy(() -> kvStore.putMany(Collections.emptyMap()));
         assertThat(getAllStoreEntries()).isEmpty();
     }
 
@@ -172,50 +178,44 @@ class KeyValueStoreImplTest extends AbstractDatabaseTest {
 
     @Test
     void getAllEntriesShouldReturnAll() {
-        kvStore.putMany(
-                Map.ofEntries(
-                        Map.entry("abc", "def"),
-                        Map.entry("123", "456")));
+        kvStore.putMany(Map.ofEntries(Map.entry("abc", "def"), Map.entry("123", "456")));
 
-        assertThat(kvStore.getAll()).satisfiesExactlyInAnyOrder(
-                entry -> {
-                    assertThat(entry.key()).isEqualTo("abc");
-                    assertThat(entry.value()).isEqualTo("def");
-                    assertThat(entry.createdAt()).isNotNull();
-                    assertThat(entry.updatedAt()).isNull();
-                    assertThat(entry.version()).isZero();
-                },
-                entry -> {
-                    assertThat(entry.key()).isEqualTo("123");
-                    assertThat(entry.value()).isEqualTo("456");
-                    assertThat(entry.createdAt()).isNotNull();
-                    assertThat(entry.updatedAt()).isNull();
-                    assertThat(entry.version()).isZero();
-                }
-        );
+        assertThat(kvStore.getAll())
+                .satisfiesExactlyInAnyOrder(
+                        entry -> {
+                            assertThat(entry.key()).isEqualTo("abc");
+                            assertThat(entry.value()).isEqualTo("def");
+                            assertThat(entry.createdAt()).isNotNull();
+                            assertThat(entry.updatedAt()).isNull();
+                            assertThat(entry.version()).isZero();
+                        },
+                        entry -> {
+                            assertThat(entry.key()).isEqualTo("123");
+                            assertThat(entry.value()).isEqualTo("456");
+                            assertThat(entry.createdAt()).isNotNull();
+                            assertThat(entry.updatedAt()).isNull();
+                            assertThat(entry.version()).isZero();
+                        });
     }
 
     @Test
     void getManyEntriesShouldReturnOfRequestedKeys() {
-        kvStore.putMany(
-                Map.ofEntries(
-                        Map.entry("abc", "def"),
-                        Map.entry("123", "456"),
-                        Map.entry("xxx", "yyy")));
+        kvStore.putMany(Map.ofEntries(Map.entry("abc", "def"), Map.entry("123", "456"), Map.entry("xxx", "yyy")));
 
-        assertThat(kvStore.getMany(List.of("123", "abc", "000")).entrySet()).satisfiesExactlyInAnyOrder(
-                mapEntry -> {
-                    assertThat(mapEntry.getKey()).isEqualTo("abc");
-                    assertThat(mapEntry.getValue().value()).isEqualTo("def");
-                    assertThat(mapEntry.getValue().createdAt()).isNotNull();
-                    assertThat(mapEntry.getValue().updatedAt()).isNull();
-                },
-                mapEntry -> {
-                    assertThat(mapEntry.getKey()).isEqualTo("123");
-                    assertThat(mapEntry.getValue().value()).isEqualTo("456");
-                    assertThat(mapEntry.getValue().createdAt()).isNotNull();
-                    assertThat(mapEntry.getValue().updatedAt()).isNull();
-                });
+        assertThat(kvStore.getMany(List.of("123", "abc", "000")).entrySet())
+                .satisfiesExactlyInAnyOrder(
+                        mapEntry -> {
+                            assertThat(mapEntry.getKey()).isEqualTo("abc");
+                            assertThat(mapEntry.getValue().value()).isEqualTo("def");
+                            assertThat(mapEntry.getValue().createdAt()).isNotNull();
+                            assertThat(mapEntry.getValue().updatedAt()).isNull();
+                        },
+                        mapEntry -> {
+                            assertThat(mapEntry.getKey()).isEqualTo("123");
+                            assertThat(mapEntry.getValue().value()).isEqualTo("456");
+                            assertThat(mapEntry.getValue().createdAt()).isNotNull();
+                            assertThat(mapEntry.getValue().updatedAt()).isNull();
+                        });
     }
 
     @Test
@@ -249,8 +249,7 @@ class KeyValueStoreImplTest extends AbstractDatabaseTest {
 
     @Test
     void deleteManyShouldDoNothingWhenKeysIsEmpty() {
-        assertThatNoException()
-                .isThrownBy(() -> kvStore.deleteMany(Collections.emptyList()));
+        assertThatNoException().isThrownBy(() -> kvStore.deleteMany(Collections.emptyList()));
     }
 
     @Test
@@ -287,13 +286,7 @@ class KeyValueStoreImplTest extends AbstractDatabaseTest {
     }
 
     public record StoreEntryRecord(
-            String extensionPoint,
-            String extension,
-            String key,
-            String value,
-            Instant createdAt,
-            Instant updatedAt) {
-    }
+            String extensionPoint, String extension, String key, String value, Instant createdAt, Instant updatedAt) {}
 
     private List<StoreEntryRecord> getAllStoreEntries() {
         return jdbi.withHandle(handle -> handle.createQuery("""
@@ -302,5 +295,4 @@ class KeyValueStoreImplTest extends AbstractDatabaseTest {
                 .map(ConstructorMapper.of(StoreEntryRecord.class))
                 .list());
     }
-
 }

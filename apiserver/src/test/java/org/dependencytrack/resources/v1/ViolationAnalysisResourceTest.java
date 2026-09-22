@@ -20,12 +20,6 @@ package org.dependencytrack.resources.v1;
 
 import alpine.server.filters.ApiFilter;
 import alpine.server.filters.AuthFeature;
-import jakarta.json.Json;
-import jakarta.json.JsonArray;
-import jakarta.json.JsonObject;
-import jakarta.ws.rs.client.Entity;
-import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.Response;
 import org.dependencytrack.JerseyTestExtension;
 import org.dependencytrack.ResourceTest;
 import org.dependencytrack.auth.Permissions;
@@ -46,6 +40,13 @@ import org.glassfish.jersey.server.ResourceConfig;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
+import jakarta.json.Json;
+import jakarta.json.JsonArray;
+import jakarta.json.JsonObject;
+import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+
 import java.util.Date;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -60,10 +61,9 @@ import static org.dependencytrack.notification.proto.v1.Scope.SCOPE_PORTFOLIO;
 class ViolationAnalysisResourceTest extends ResourceTest {
 
     @RegisterExtension
-    static JerseyTestExtension jersey = new JerseyTestExtension(
-            new ResourceConfig(ViolationAnalysisResource.class)
-                    .register(ApiFilter.class)
-                    .register(AuthFeature.class));
+    static JerseyTestExtension jersey = new JerseyTestExtension(new ResourceConfig(ViolationAnalysisResource.class)
+            .register(ApiFilter.class)
+            .register(AuthFeature.class));
 
     @Test
     void retrieveAnalysisTest() {
@@ -78,7 +78,8 @@ class ViolationAnalysisResourceTest extends ResourceTest {
         component = qm.createComponent(component, false);
 
         final Policy policy = qm.createPolicy("Blacklisted Version", Policy.Operator.ALL, Policy.ViolationState.FAIL);
-        final PolicyCondition condition = qm.createPolicyCondition(policy, Subject.VERSION, Operator.NUMERIC_EQUAL, "1.0");
+        final PolicyCondition condition =
+                qm.createPolicyCondition(policy, Subject.VERSION, Operator.NUMERIC_EQUAL, "1.0");
 
         var violation = new PolicyViolation();
         violation.setType(Type.OPERATIONAL);
@@ -109,14 +110,65 @@ class ViolationAnalysisResourceTest extends ResourceTest {
         assertThat(response.getStatus()).isEqualTo(Response.Status.OK.getStatusCode());
         assertThat(response.getHeaderString(TOTAL_COUNT_HEADER)).isNull();
 
-        final JsonObject jsonObject = parseJsonObject(response);
-        assertThat(jsonObject).isNotNull();
-        assertThat(jsonObject.getString("analysisState")).isEqualTo(ViolationAnalysisState.APPROVED.name());
-        assertThat(jsonObject.getJsonArray("analysisComments")).hasSize(1);
-        assertThat(jsonObject.getJsonArray("analysisComments").getJsonObject(0))
-                .hasFieldOrPropertyWithValue("comment", Json.createValue("Analysis comment here"))
-                .hasFieldOrPropertyWithValue("commenter", Json.createValue("Jane Doe"));
-        assertThat(jsonObject.getBoolean("isSuppressed")).isFalse();
+        assertThatJson(getPlainTextBody(response)).isEqualTo(/* language=JSON */ """
+                        {
+                          "analysisState": "APPROVED",
+                          "analysisComments": [
+                            {
+                              "timestamp": "${json-unit.any-number}",
+                              "comment": "Analysis comment here",
+                              "commenter": "Jane Doe"
+                            }
+                          ],
+                          "isSuppressed": false
+                        }
+                        """);
+    }
+
+    @Test
+    void shouldReturnEmptyAnalysisCommentsArrayWhenNoCommentsExist() {
+        initializeWithPermissions(Permissions.VIEW_POLICY_VIOLATION);
+
+        final Project project = qm.createProject("Acme Example", null, "1.0", null, null, null, null, false);
+
+        var component = new Component();
+        component.setProject(project);
+        component.setName("Acme Component");
+        component.setVersion("1.0");
+        component = qm.createComponent(component, false);
+
+        final Policy policy = qm.createPolicy("Blacklisted Version", Policy.Operator.ALL, Policy.ViolationState.FAIL);
+        final PolicyCondition condition =
+                qm.createPolicyCondition(policy, Subject.VERSION, Operator.NUMERIC_EQUAL, "1.0");
+
+        var violation = new PolicyViolation();
+        violation.setType(Type.OPERATIONAL);
+        violation.setComponent(component);
+        violation.setPolicyCondition(condition);
+        violation.setTimestamp(new Date());
+        violation = qm.persist(violation);
+
+        final var violationAnalysis = new ViolationAnalysis();
+        violationAnalysis.setComponent(component);
+        violationAnalysis.setPolicyViolation(violation);
+        violationAnalysis.setViolationAnalysisState(ViolationAnalysisState.APPROVED);
+        qm.persist(violationAnalysis);
+
+        final Response response = jersey.target(V1_VIOLATION_ANALYSIS)
+                .queryParam("component", component.getUuid())
+                .queryParam("policyViolation", violation.getUuid())
+                .request()
+                .header(X_API_KEY, apiKey)
+                .get();
+        assertThat(response.getStatus()).isEqualTo(Response.Status.OK.getStatusCode());
+
+        assertThatJson(getPlainTextBody(response)).isEqualTo(/* language=JSON */ """
+                        {
+                          "analysisState": "APPROVED",
+                          "analysisComments": [],
+                          "isSuppressed": false
+                        }
+                        """);
     }
 
     @Test
@@ -183,8 +235,7 @@ class ViolationAnalysisResourceTest extends ResourceTest {
         component.setName("acme-lib");
         qm.persist(component);
 
-        final Supplier<Response> responseSupplier = () -> jersey
-                .target(V1_VIOLATION_ANALYSIS)
+        final Supplier<Response> responseSupplier = () -> jersey.target(V1_VIOLATION_ANALYSIS)
                 .queryParam("component", component.getUuid())
                 .queryParam("policyViolation", UUID.randomUUID())
                 .request()
@@ -222,7 +273,8 @@ class ViolationAnalysisResourceTest extends ResourceTest {
         component = qm.createComponent(component, false);
 
         final Policy policy = qm.createPolicy("Blacklisted Version", Policy.Operator.ALL, Policy.ViolationState.FAIL);
-        final PolicyCondition condition = qm.createPolicyCondition(policy, Subject.VERSION, Operator.NUMERIC_EQUAL, "1.0");
+        final PolicyCondition condition =
+                qm.createPolicyCondition(policy, Subject.VERSION, Operator.NUMERIC_EQUAL, "1.0");
 
         var violation = new PolicyViolation();
         violation.setType(Type.OPERATIONAL);
@@ -231,8 +283,12 @@ class ViolationAnalysisResourceTest extends ResourceTest {
         violation.setTimestamp(new Date());
         violation = qm.persist(violation);
 
-        final var request = new ViolationAnalysisRequest(component.getUuid().toString(),
-                violation.getUuid().toString(), ViolationAnalysisState.APPROVED, "Some comment", false);
+        final var request = new ViolationAnalysisRequest(
+                component.getUuid().toString(),
+                violation.getUuid().toString(),
+                ViolationAnalysisState.APPROVED,
+                "Some comment",
+                false);
 
         final Response response = jersey.target(V1_VIOLATION_ANALYSIS)
                 .request()
@@ -247,20 +303,23 @@ class ViolationAnalysisResourceTest extends ResourceTest {
         assertThat(jsonObject.getBoolean("isSuppressed")).isFalse();
 
         assertThat(jsonObject.getJsonArray("analysisComments")).hasSize(2);
-        assertThat(jsonObject.getJsonArray("analysisComments")).satisfiesExactlyInAnyOrder(
-                obj1 -> assertThat(obj1.asJsonObject())
-                        .hasFieldOrPropertyWithValue("comment", Json.createValue("NOT_SET → APPROVED"))
-                        .hasFieldOrPropertyWithValue("commenter", Json.createValue("Test Users")),
-                obj2 -> assertThat(obj2.asJsonObject())
-                        .hasFieldOrPropertyWithValue("comment", Json.createValue("Some comment"))
-                        .hasFieldOrPropertyWithValue("commenter", Json.createValue("Test Users")));
+        assertThat(jsonObject.getJsonArray("analysisComments"))
+                .satisfiesExactlyInAnyOrder(
+                        obj1 -> assertThat(obj1.asJsonObject())
+                                .hasFieldOrPropertyWithValue("comment", Json.createValue("NOT_SET → APPROVED"))
+                                .hasFieldOrPropertyWithValue("commenter", Json.createValue("Test Users")),
+                        obj2 -> assertThat(obj2.asJsonObject())
+                                .hasFieldOrPropertyWithValue("comment", Json.createValue("Some comment"))
+                                .hasFieldOrPropertyWithValue("commenter", Json.createValue("Test Users")));
 
         assertThat(qm.getNotificationOutbox()).satisfiesExactly(notification -> {
             assertThat(notification.getScope()).isEqualTo(SCOPE_PORTFOLIO);
             assertThat(notification.getGroup()).isEqualTo(GROUP_PROJECT_AUDIT_CHANGE);
             assertThat(notification.getLevel()).isEqualTo(LEVEL_INFORMATIONAL);
-            assertThat(notification.getTitle()).isEqualTo("Violation Analysis Decision: APPROVED on Project: [Acme Example : 1.0]");
-            assertThat(notification.getContent()).isEqualTo("An violation analysis decision was made to a policy violation affecting a project");
+            assertThat(notification.getTitle())
+                    .isEqualTo("Violation Analysis Decision: APPROVED on Project: [Acme Example : 1.0]");
+            assertThat(notification.getContent())
+                    .isEqualTo("An violation analysis decision was made to a policy violation affecting a project");
         });
     }
 
@@ -279,7 +338,8 @@ class ViolationAnalysisResourceTest extends ResourceTest {
         component = qm.createComponent(component, false);
 
         final Policy policy = qm.createPolicy("Blacklisted Version", Policy.Operator.ALL, Policy.ViolationState.FAIL);
-        final PolicyCondition condition = qm.createPolicyCondition(policy, Subject.VERSION, Operator.NUMERIC_EQUAL, "1.0");
+        final PolicyCondition condition =
+                qm.createPolicyCondition(policy, Subject.VERSION, Operator.NUMERIC_EQUAL, "1.0");
 
         var violation = new PolicyViolation();
         violation.setType(Type.OPERATIONAL);
@@ -288,8 +348,8 @@ class ViolationAnalysisResourceTest extends ResourceTest {
         violation.setTimestamp(new Date());
         violation = qm.persist(violation);
 
-        final var request = new ViolationAnalysisRequest(component.getUuid().toString(),
-                violation.getUuid().toString(), null, null, null);
+        final var request = new ViolationAnalysisRequest(
+                component.getUuid().toString(), violation.getUuid().toString(), null, null, null);
 
         final Response response = jersey.target(V1_VIOLATION_ANALYSIS)
                 .request()
@@ -322,7 +382,8 @@ class ViolationAnalysisResourceTest extends ResourceTest {
         component = qm.createComponent(component, false);
 
         final Policy policy = qm.createPolicy("Blacklisted Version", Policy.Operator.ALL, Policy.ViolationState.FAIL);
-        final PolicyCondition condition = qm.createPolicyCondition(policy, Subject.VERSION, Operator.NUMERIC_EQUAL, "1.0");
+        final PolicyCondition condition =
+                qm.createPolicyCondition(policy, Subject.VERSION, Operator.NUMERIC_EQUAL, "1.0");
 
         var violation = new PolicyViolation();
         violation.setType(Type.OPERATIONAL);
@@ -338,8 +399,12 @@ class ViolationAnalysisResourceTest extends ResourceTest {
         violationAnalysis.setSuppressed(true);
         qm.persist(violationAnalysis);
 
-        final var request = new ViolationAnalysisRequest(component.getUuid().toString(),
-                violation.getUuid().toString(), ViolationAnalysisState.REJECTED, "Some comment", false);
+        final var request = new ViolationAnalysisRequest(
+                component.getUuid().toString(),
+                violation.getUuid().toString(),
+                ViolationAnalysisState.REJECTED,
+                "Some comment",
+                false);
 
         final Response response = jersey.target(V1_VIOLATION_ANALYSIS)
                 .request()
@@ -369,8 +434,10 @@ class ViolationAnalysisResourceTest extends ResourceTest {
             assertThat(notification.getScope()).isEqualTo(SCOPE_PORTFOLIO);
             assertThat(notification.getGroup()).isEqualTo(GROUP_PROJECT_AUDIT_CHANGE);
             assertThat(notification.getLevel()).isEqualTo(LEVEL_INFORMATIONAL);
-            assertThat(notification.getTitle()).isEqualTo("Violation Analysis Decision: REJECTED on Project: [Acme Example : 1.0]");
-            assertThat(notification.getContent()).isEqualTo("An violation analysis decision was made to a policy violation affecting a project");
+            assertThat(notification.getTitle())
+                    .isEqualTo("Violation Analysis Decision: REJECTED on Project: [Acme Example : 1.0]");
+            assertThat(notification.getContent())
+                    .isEqualTo("An violation analysis decision was made to a policy violation affecting a project");
         });
     }
 
@@ -387,7 +454,8 @@ class ViolationAnalysisResourceTest extends ResourceTest {
         component = qm.createComponent(component, false);
 
         final Policy policy = qm.createPolicy("Blacklisted Version", Policy.Operator.ALL, Policy.ViolationState.FAIL);
-        final PolicyCondition condition = qm.createPolicyCondition(policy, Subject.VERSION, Operator.NUMERIC_EQUAL, "1.0");
+        final PolicyCondition condition =
+                qm.createPolicyCondition(policy, Subject.VERSION, Operator.NUMERIC_EQUAL, "1.0");
 
         var violation = new PolicyViolation();
         violation.setType(Type.OPERATIONAL);
@@ -403,8 +471,12 @@ class ViolationAnalysisResourceTest extends ResourceTest {
         violationAnalysis.setSuppressed(true);
         qm.persist(violationAnalysis);
 
-        final var request = new ViolationAnalysisRequest(component.getUuid().toString(),
-                violation.getUuid().toString(), ViolationAnalysisState.APPROVED, null, true);
+        final var request = new ViolationAnalysisRequest(
+                component.getUuid().toString(),
+                violation.getUuid().toString(),
+                ViolationAnalysisState.APPROVED,
+                null,
+                true);
 
         final Response response = jersey.target(V1_VIOLATION_ANALYSIS)
                 .request()
@@ -435,7 +507,8 @@ class ViolationAnalysisResourceTest extends ResourceTest {
         component = qm.createComponent(component, false);
 
         final Policy policy = qm.createPolicy("Blacklisted Version", Policy.Operator.ALL, Policy.ViolationState.FAIL);
-        final PolicyCondition condition = qm.createPolicyCondition(policy, Subject.VERSION, Operator.NUMERIC_EQUAL, "1.0");
+        final PolicyCondition condition =
+                qm.createPolicyCondition(policy, Subject.VERSION, Operator.NUMERIC_EQUAL, "1.0");
 
         var violation = new PolicyViolation();
         violation.setType(Type.OPERATIONAL);
@@ -451,8 +524,8 @@ class ViolationAnalysisResourceTest extends ResourceTest {
         violationAnalysis.setSuppressed(true);
         qm.persist(violationAnalysis);
 
-        final var request = new ViolationAnalysisRequest(component.getUuid().toString(),
-                violation.getUuid().toString(), null, null, null);
+        final var request = new ViolationAnalysisRequest(
+                component.getUuid().toString(), violation.getUuid().toString(), null, null, null);
 
         final Response response = jersey.target(V1_VIOLATION_ANALYSIS)
                 .request()
@@ -474,15 +547,21 @@ class ViolationAnalysisResourceTest extends ResourceTest {
             assertThat(notification.getScope()).isEqualTo(SCOPE_PORTFOLIO);
             assertThat(notification.getGroup()).isEqualTo(GROUP_PROJECT_AUDIT_CHANGE);
             assertThat(notification.getLevel()).isEqualTo(LEVEL_INFORMATIONAL);
-            assertThat(notification.getTitle()).isEqualTo("Violation Analysis Decision: NOT_SET on Project: [Acme Example : 1.0]");
-            assertThat(notification.getContent()).isEqualTo("An violation analysis decision was made to a policy violation affecting a project");
+            assertThat(notification.getTitle())
+                    .isEqualTo("Violation Analysis Decision: NOT_SET on Project: [Acme Example : 1.0]");
+            assertThat(notification.getContent())
+                    .isEqualTo("An violation analysis decision was made to a policy violation affecting a project");
         });
     }
 
     @Test
     void updateAnalysisUnauthorizedTest() {
-        final var request = new ViolationAnalysisRequest(UUID.randomUUID().toString(),
-                UUID.randomUUID().toString(), ViolationAnalysisState.REJECTED, "Some comment", false);
+        final var request = new ViolationAnalysisRequest(
+                UUID.randomUUID().toString(),
+                UUID.randomUUID().toString(),
+                ViolationAnalysisState.REJECTED,
+                "Some comment",
+                false);
 
         final Response response = jersey.target(V1_VIOLATION_ANALYSIS)
                 .request()
@@ -496,8 +575,12 @@ class ViolationAnalysisResourceTest extends ResourceTest {
     void updateAnalysisComponentNotFoundTest() {
         initializeWithPermissions(Permissions.POLICY_VIOLATION_ANALYSIS);
 
-        final var request = new ViolationAnalysisRequest(UUID.randomUUID().toString(),
-                UUID.randomUUID().toString(), ViolationAnalysisState.REJECTED, "Some comment", false);
+        final var request = new ViolationAnalysisRequest(
+                UUID.randomUUID().toString(),
+                UUID.randomUUID().toString(),
+                ViolationAnalysisState.REJECTED,
+                "Some comment",
+                false);
 
         final Response response = jersey.target(V1_VIOLATION_ANALYSIS)
                 .request()
@@ -520,8 +603,12 @@ class ViolationAnalysisResourceTest extends ResourceTest {
         component.setVersion("1.0");
         component = qm.createComponent(component, false);
 
-        final var request = new ViolationAnalysisRequest(component.getUuid().toString(),
-                UUID.randomUUID().toString(), ViolationAnalysisState.REJECTED, "Some comment", false);
+        final var request = new ViolationAnalysisRequest(
+                component.getUuid().toString(),
+                UUID.randomUUID().toString(),
+                ViolationAnalysisState.REJECTED,
+                "Some comment",
+                false);
 
         final Response response = jersey.target(V1_VIOLATION_ANALYSIS)
                 .request()
@@ -546,8 +633,7 @@ class ViolationAnalysisResourceTest extends ResourceTest {
         component.setName("acme-lib");
         qm.persist(component);
 
-        final Supplier<Response> responseSupplier = () -> jersey
-                .target(V1_VIOLATION_ANALYSIS)
+        final Supplier<Response> responseSupplier = () -> jersey.target(V1_VIOLATION_ANALYSIS)
                 .queryParam("component", component.getUuid())
                 .queryParam("policyViolation", UUID.randomUUID())
                 .request()
@@ -575,5 +661,4 @@ class ViolationAnalysisResourceTest extends ResourceTest {
         response = responseSupplier.get();
         assertThat(response.getStatus()).isEqualTo(404);
     }
-
 }

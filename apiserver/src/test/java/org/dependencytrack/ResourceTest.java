@@ -21,24 +21,23 @@ package org.dependencytrack;
 import alpine.model.Permission;
 import alpine.model.Team;
 import alpine.server.auth.PasswordService;
+import org.dependencytrack.auth.Permissions;
+import org.dependencytrack.model.ConfigPropertyConstants;
+import org.dependencytrack.persistence.QueryManager;
+import org.dependencytrack.testing.database.TestDatabaseExtension;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.extension.RegisterExtension;
+
 import jakarta.json.Json;
 import jakarta.json.JsonArray;
 import jakarta.json.JsonObject;
 import jakarta.json.JsonReader;
 import jakarta.ws.rs.core.Response;
-import org.dependencytrack.auth.Permissions;
-import org.dependencytrack.model.ConfigPropertyConstants;
-import org.dependencytrack.persistence.QueryManager;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
 
 import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.List;
-
-import static org.dependencytrack.PersistenceCapableTest.truncateTables;
-
 
 public abstract class ResourceTest {
 
@@ -51,32 +50,26 @@ public abstract class ResourceTest {
     protected final String V1_DEPENDENCY_GRAPH = "/v1/dependencyGraph";
     protected final String V1_CONFIG_PROPERTY = "/v1/configProperty";
     protected final String V1_CWE = "/v1/cwe";
-    protected final String V1_DEPENDENCY = "/v1/dependency";
     protected final String V1_EVENT = "/v1/event";
     protected final String V1_FINDING = "/v1/finding";
     protected final String V1_LDAP = "/v1/ldap";
     protected final String V1_LICENSE = "/v1/license";
+    protected final String V1_LICENSE_GROUP = "/v1/licenseGroup";
     protected final String V1_METRICS = "/v1/metrics";
     protected final String V1_NOTIFICATION_PUBLISHER = "/v1/notification/publisher";
     protected final String V1_NOTIFICATION_RULE = "/v1/notification/rule";
     protected final String V1_OIDC = "/v1/oidc";
     protected final String V1_PERMISSION = "/v1/permission";
-    protected final String V1_OSV_ECOSYSTEM = "/v1/integration/osv/ecosystem";
     protected final String V1_POLICY = "/v1/policy";
     protected final String V1_POLICY_VIOLATION = "/v1/violation";
     protected final String V1_PROJECT = "/v1/project";
     protected final String V1_PROJECT_LATEST = "/v1/project/latest/";
     protected final String V1_REPOSITORY = "/v1/repository";
-    protected final String V1_SCAN = "/v1/scan";
-    protected final String V1_SEARCH = "/v1/search";
     protected final String V1_TEAM = "/v1/team";
     protected final String V1_USER = "/v1/user";
     protected final String V1_VEX = "/v1/vex";
     protected final String V1_VIOLATION_ANALYSIS = "/v1/violation/analysis";
     protected final String V1_VULNERABILITY = "/v1/vulnerability";
-    protected final String V1_VULNERABILITY_POLICY = "/v1/policy/vulnerability";
-    protected final String V1_VULNERABILITY_POLICY_BUNDLE = "/v1/policy/vulnerability/bundle";
-    protected final String V1_WORKFLOW = "/v1/workflow";
     protected final String ORDER_BY = "orderBy";
     protected final String SORT = "sort";
     protected final String SORT_ASC = "asc";
@@ -85,26 +78,24 @@ public abstract class ResourceTest {
     protected final String PAGE = "page";
     protected final String SIZE = "size";
     protected final String TOTAL_COUNT_HEADER = "X-Total-Count";
+    protected final String TOTAL_COUNT_TYPE_HEADER = "X-Total-Count-Type";
     protected final String X_API_KEY = "X-Api-Key";
     protected final String API_KEY = "apiKey";
     protected final String V1_TAG = "/v1/tag";
 
     // Hashing is expensive. Do it once and re-use across tests as much as possible.
-    protected static final String TEST_USER_PASSWORD_HASH = new String(PasswordService.createHash("testuser".toCharArray()));
+    protected static final String TEST_USER_PASSWORD_HASH =
+            new String(PasswordService.createHash("testuser".toCharArray()));
 
     protected QueryManager qm;
     protected Team team;
     protected String apiKey;
 
-    @BeforeAll
-    public static void init() {
-        TestDatabaseManager.initialize();
-    }
+    @RegisterExtension
+    protected static final TestDatabaseExtension database = new TestDatabaseExtension();
 
     @BeforeEach
     public void before() throws Exception {
-        truncateTables();
-
         // Add a test user and team with API key. Optional if this is used, but its available to all tests.
         this.qm = new QueryManager();
         team = qm.createTeam("Test Users");
@@ -118,7 +109,7 @@ public abstract class ResourceTest {
         // code base can leave such a broken state behind if they run into unexpected
         // errors. See: https://github.com/DependencyTrack/dependency-track/issues/2677
         if (!qm.getPersistenceManager().isClosed()
-            && qm.getPersistenceManager().currentTransaction().isActive()) {
+                && qm.getPersistenceManager().currentTransaction().isActive()) {
             qm.getPersistenceManager().currentTransaction().rollback();
         }
 
@@ -140,8 +131,7 @@ public abstract class ResourceTest {
                 ConfigPropertyConstants.ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyName(),
                 "true",
                 ConfigPropertyConstants.ACCESS_MANAGEMENT_ACL_ENABLED.getPropertyType(),
-                null
-        );
+                null);
     }
 
     protected String getPlainTextBody(Response response) {

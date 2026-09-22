@@ -32,6 +32,7 @@ import org.cyclonedx.proto.v1_7.Source;
 import org.cyclonedx.proto.v1_7.Vulnerability;
 import org.cyclonedx.proto.v1_7.VulnerabilityAffects;
 import org.dependencytrack.support.distrometadata.OsDistribution;
+import org.dependencytrack.support.distrometadata.RedHatDistribution;
 import org.dependencytrack.support.jdbi.exception.TransientSqlErrors;
 import org.dependencytrack.vulnanalysis.api.RetryableVulnAnalysisException;
 import org.dependencytrack.vulnanalysis.api.VulnAnalyzer;
@@ -71,6 +72,7 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(InternalVulnAnalyzer.class);
     private static final Pattern EPOCH_PREFIX_PATTERN = Pattern.compile("^\\d+:");
+    private static final Pattern EFFECTIVELY_ZERO_PATTERN = Pattern.compile("^0(\\.0)*$");
     private static final String INTERNAL_VULN_ID_PROPERTY = "dependencytrack:internal:vulnerability-id";
     private static final int QUERY_BATCH_SIZE = 25;
 
@@ -93,7 +95,9 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
 
         for (final CandidateComponent candidate : candidates) {
             for (final Coordinate coordinate : Coordinate.of(candidate)) {
-                candidatesByCoordinate.computeIfAbsent(coordinate, k -> new HashSet<>()).add(candidate);
+                candidatesByCoordinate
+                        .computeIfAbsent(coordinate, k -> new HashSet<>())
+                        .add(candidate);
             }
         }
 
@@ -117,11 +121,7 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
             }
 
             LOGGER.debug("Querying matching criteria for {} CPE coordinates", batch.size());
-            processCriteria(
-                    queryCpeMatchingCriteria(batch),
-                    candidatesByCoordinate,
-                    findingsByVuln,
-                    vulnMetadata);
+            processCriteria(queryCpeMatchingCriteria(batch), candidatesByCoordinate, findingsByVuln, vulnMetadata);
         }
 
         for (final var batch : (Iterable<List<PurlCoordinate>>) () -> purlCoordinates.stream()
@@ -132,18 +132,14 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
             }
 
             LOGGER.debug("Querying matching criteria for {} PURL coordinates", batch.size());
-            processCriteria(
-                    queryPurlMatchingCriteria(batch),
-                    candidatesByCoordinate,
-                    findingsByVuln,
-                    vulnMetadata);
+            processCriteria(queryPurlMatchingCriteria(batch), candidatesByCoordinate, findingsByVuln, vulnMetadata);
         }
 
         final var vulnerabilities = new ArrayList<Vulnerability>();
         for (final Map.Entry<Long, Set<Long>> entry : findingsByVuln.entrySet()) {
             final Long vulnDbId = entry.getKey();
             final Set<Long> affectedComponentIds = entry.getValue();
-            final VulnMetadata metadata = vulnMetadata.get(vulnDbId);
+            final VulnMetadata metadata = requireNonNull(vulnMetadata.get(vulnDbId));
 
             final var vulnBuilder = Vulnerability.newBuilder()
                     .setId(metadata.vulnId())
@@ -153,17 +149,13 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
                             .setValue(String.valueOf(vulnDbId)));
 
             for (final Long componentId : affectedComponentIds) {
-                vulnBuilder
-                        .addAffects(VulnerabilityAffects.newBuilder()
-                                .setRef(String.valueOf(componentId)));
+                vulnBuilder.addAffects(VulnerabilityAffects.newBuilder().setRef(String.valueOf(componentId)));
             }
 
             vulnerabilities.add(vulnBuilder.build());
         }
 
-        return Bom.newBuilder()
-                .addAllVulnerabilities(vulnerabilities)
-                .build();
+        return Bom.newBuilder().addAllVulnerabilities(vulnerabilities).build();
     }
 
     private Map<Coordinate, List<MatchingCriteria>> queryCpeMatchingCriteria(List<CpeCoordinate> coordinates) {
@@ -185,13 +177,15 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
             final CpeCoordinate coordinate = coordinates.get(coordinateIdx);
             for (final var partCondition : CpeFilterCondition.of(CpeAttribute.PART, coordinate.part())) {
                 for (final var vendorCondition : CpeFilterCondition.of(CpeAttribute.VENDOR, coordinate.vendor())) {
-                    for (final var productCondition : CpeFilterCondition.of(CpeAttribute.PRODUCT, coordinate.product())) {
+                    for (final var productCondition :
+                            CpeFilterCondition.of(CpeAttribute.PRODUCT, coordinate.product())) {
                         final int idx = queryConditionIdx++;
                         final var partParam = "part" + idx;
                         final var vendorParam = "vendor" + idx;
                         final var productParam = "product" + idx;
 
-                        queryBranches.add(/* language=SQL */ """
+                        queryBranches.add(
+                                /* language=SQL */ """
                                 SELECT "ID" AS vs_id
                                      , %d AS coordinate_index
                                   FROM "VULNERABLESOFTWARE"
@@ -199,10 +193,10 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
                                    AND %s
                                    AND %s\
                                 """.formatted(
-                                coordinateIdx,
-                                partCondition.toSql(partParam),
-                                vendorCondition.toSql(vendorParam),
-                                productCondition.toSql(productParam)));
+                                                coordinateIdx,
+                                                partCondition.toSql(partParam),
+                                                vendorCondition.toSql(vendorParam),
+                                                productCondition.toSql(productParam)));
                         if (partCondition.value() != null) {
                             queryParams.put(partParam, partCondition.value());
                         }
@@ -218,9 +212,7 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
         }
 
         return queryMatchingCriteria(
-                String.join("\nUNION ALL\n", queryBranches),
-                query -> query.bindMap(queryParams),
-                coordinates);
+                String.join("\nUNION ALL\n", queryBranches), query -> query.bindMap(queryParams), coordinates);
     }
 
     private Map<Coordinate, List<MatchingCriteria>> queryPurlMatchingCriteria(List<PurlCoordinate> coordinates) {
@@ -290,26 +282,30 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
                 String.join("\nUNION ALL\n", queryBranches),
                 query -> {
                     if (!nullNsIndexes.isEmpty()) {
-                        query
-                                .bind("nullNsTypes", nullNsTypes.toArray(String[]::new))
+                        query.bind("nullNsTypes", nullNsTypes.toArray(String[]::new))
                                 .bind("nullNsNames", nullNsNames.toArray(String[]::new))
-                                .bind("nullNsIndexes", nullNsIndexes.stream().mapToInt(Integer::intValue).toArray());
+                                .bind(
+                                        "nullNsIndexes",
+                                        nullNsIndexes.stream()
+                                                .mapToInt(Integer::intValue)
+                                                .toArray());
                     }
                     if (!nsIndexes.isEmpty()) {
-                        query
-                                .bind("nsTypes", nsTypes.toArray(String[]::new))
+                        query.bind("nsTypes", nsTypes.toArray(String[]::new))
                                 .bind("nsNamespaces", namespaces.toArray(String[]::new))
                                 .bind("nsNames", nsNames.toArray(String[]::new))
-                                .bind("nsIndexes", nsIndexes.stream().mapToInt(Integer::intValue).toArray());
+                                .bind(
+                                        "nsIndexes",
+                                        nsIndexes.stream()
+                                                .mapToInt(Integer::intValue)
+                                                .toArray());
                     }
                 },
                 coordinates);
     }
 
     private Map<Coordinate, List<MatchingCriteria>> queryMatchingCriteria(
-            String innerSql,
-            Consumer<Query> binder,
-            List<? extends Coordinate> coordinates) {
+            String innerSql, Consumer<Query> binder, List<? extends Coordinate> coordinates) {
         final String sql = /* language=SQL */ """
                 SELECT vs.*
                      , v."ID" AS vuln_db_id
@@ -330,10 +326,8 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
             return jdbi.withHandle(handle -> {
                 final Query query = handle.createQuery(sql);
                 binder.accept(query);
-                return query
-                        .mapTo(MatchingCriteria.class)
-                        .collect(Collectors.groupingBy(
-                                criteria -> coordinates.get(criteria.coordinateIndex())));
+                return query.mapTo(MatchingCriteria.class)
+                        .collect(Collectors.groupingBy(criteria -> coordinates.get(criteria.coordinateIndex())));
             });
         } catch (JdbiException e) {
             if (TransientSqlErrors.isTransient(e)) {
@@ -366,17 +360,17 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
                         continue;
                     }
 
-                    final boolean affected = switch (coordinate) {
-                        case CpeCoordinate _ -> isAffectedByCpe(candidate, criteria);
-                        case PurlCoordinate _ -> isAffectedByPurl(candidate, criteria);
-                    };
+                    final boolean affected =
+                            switch (coordinate) {
+                                case CpeCoordinate _ -> isAffectedByCpe(candidate, criteria);
+                                case PurlCoordinate _ -> isAffectedByPurl(candidate, criteria);
+                            };
                     if (affected) {
                         findingsByVuln
                                 .computeIfAbsent(criteria.vulnDbId(), k -> new HashSet<>())
                                 .add(candidate.id());
                         vulnMetadata.putIfAbsent(
-                                criteria.vulnDbId(),
-                                new VulnMetadata(criteria.vulnId(), criteria.vulnSource()));
+                                criteria.vulnDbId(), new VulnMetadata(criteria.vulnId(), criteria.vulnSource()));
                     }
                 }
             }
@@ -417,7 +411,8 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
         }
 
         // Modified from original by Steve Springett
-        // Added null check: vs.version() != null as purl sources that use version ranges may not have version populated.
+        // Added null check: vs.version() != null as purl sources that use version ranges may not have version
+        // populated.
         if (!criteria.hasRange()
                 && criteria.version() != null
                 && Cpe.compareAttribute(criteria.version(), targetVersion) != Relation.DISJOINT) {
@@ -425,9 +420,9 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
         }
 
         // If the component also has a PURL, use that to derive the versioning scheme.
-        final String versioningScheme = Optional
-                .ofNullable(component.parsedPurl())
-                .flatMap(KnownVersioningSchemes::fromPurl)
+        final String versioningScheme = Optional.ofNullable(component.parsedPurl())
+                .map(PackageURL::getType)
+                .flatMap(KnownVersioningSchemes::fromPurlType)
                 .orElse(SCHEME_GENERIC);
 
         return compareWithVers(criteria, targetVersion, versioningScheme);
@@ -446,8 +441,7 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
         }
 
         final String versioningScheme =
-                KnownVersioningSchemes.fromPurl(componentPurl)
-                        .orElse(SCHEME_GENERIC);
+                KnownVersioningSchemes.fromPurlType(componentPurl.getType()).orElse(SCHEME_GENERIC);
 
         return compareWithVers(criteria, effectiveVersionOf(componentPurl), versioningScheme);
     }
@@ -468,18 +462,22 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
             if (!SCHEME_GENERIC.equals(versioningScheme)) {
                 LOGGER.debug(
                         "Failed to compare {} against {} with scheme {}: {}; retrying with scheme {}",
-                        targetVersion, criteria, versioningScheme, e.getMessage(), SCHEME_GENERIC);
+                        targetVersion,
+                        criteria,
+                        versioningScheme,
+                        e.getMessage(),
+                        SCHEME_GENERIC);
                 try {
                     return buildVers(criteria, SCHEME_GENERIC).contains(targetVersion);
                 } catch (VersException | InvalidVersionException e2) {
                     LOGGER.warn(
                             "Failed to compare {} against {} with fallback: {}",
-                            targetVersion, criteria, e2.getMessage());
+                            targetVersion,
+                            criteria,
+                            e2.getMessage());
                 }
             } else {
-                LOGGER.warn(
-                        "Failed to compare {} against {}: {}",
-                        targetVersion, criteria, e.getMessage());
+                LOGGER.warn("Failed to compare {} against {}: {}", targetVersion, criteria, e.getMessage());
             }
 
             return false;
@@ -489,24 +487,29 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
     private static Vers buildVers(MatchingCriteria criteria, String versioningScheme) {
         final var versBuilder = Vers.builder(versioningScheme);
 
-        if (criteria.versionStartIncluding() != null && !criteria.versionStartIncluding().isEmpty()) {
+        if (criteria.versionStartIncluding() != null
+                && !criteria.versionStartIncluding().isEmpty()
+                && !EFFECTIVELY_ZERO_PATTERN
+                        .matcher(criteria.versionStartIncluding())
+                        .matches()) {
             versBuilder.withConstraint(Comparator.GREATER_THAN_OR_EQUAL, criteria.versionStartIncluding());
         }
-        if (criteria.versionStartExcluding() != null && !criteria.versionStartExcluding().isEmpty()) {
+        if (criteria.versionStartExcluding() != null
+                && !criteria.versionStartExcluding().isEmpty()) {
             versBuilder.withConstraint(Comparator.GREATER_THAN, criteria.versionStartExcluding());
         }
-        if (criteria.versionEndExcluding() != null && !criteria.versionEndExcluding().isEmpty()) {
+        if (criteria.versionEndExcluding() != null
+                && !criteria.versionEndExcluding().isEmpty()) {
             versBuilder.withConstraint(Comparator.LESS_THAN, criteria.versionEndExcluding());
         }
-        if (criteria.versionEndIncluding() != null && !criteria.versionEndIncluding().isEmpty()) {
+        if (criteria.versionEndIncluding() != null
+                && !criteria.versionEndIncluding().isEmpty()) {
             versBuilder.withConstraint(Comparator.LESS_THAN_OR_EQUAL, criteria.versionEndIncluding());
         }
 
         if (criteria.version() == null && !versBuilder.hasConstraints()) {
             versBuilder.withConstraint(Comparator.WILDCARD, null);
-        } else if (criteria.version() != null
-                && !"*".equals(criteria.version())
-                && !"-".equals(criteria.version())) {
+        } else if (criteria.version() != null && !"*".equals(criteria.version()) && !"-".equals(criteria.version())) {
             versBuilder.withConstraint(Comparator.EQUAL, criteria.version());
         }
 
@@ -515,9 +518,12 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
 
     private static boolean matchesCpe(Cpe targetCpe, MatchingCriteria criteria) {
         final List<Relation> relations = List.of(
-                Cpe.compareAttribute(criteria.cpePart(), targetCpe.getPart().getAbbreviation().toLowerCase()),
+                Cpe.compareAttribute(
+                        criteria.cpePart(),
+                        targetCpe.getPart().getAbbreviation().toLowerCase()),
                 Cpe.compareAttribute(criteria.cpeVendor(), targetCpe.getVendor().toLowerCase()),
-                Cpe.compareAttribute(criteria.cpeProduct(), targetCpe.getProduct().toLowerCase()),
+                Cpe.compareAttribute(
+                        criteria.cpeProduct(), targetCpe.getProduct().toLowerCase()),
                 Cpe.compareAttribute(criteria.version(), targetCpe.getVersion()),
                 Cpe.compareAttribute(criteria.cpeUpdate(), targetCpe.getUpdate()),
                 Cpe.compareAttribute(criteria.cpeEdition(), targetCpe.getEdition()),
@@ -618,39 +624,83 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
     }
 
     private static boolean matchesDistro(PackageURL componentPurl, MatchingCriteria criteria) {
+        final PackageURL criteriaPurl = criteria.purl();
         final String componentDistroQualifier = distroQualifierOf(componentPurl);
-        final String vsDistroQualifier = distroQualifierOf(criteria.purl());
+        final String criteriaDistroQualifier = distroQualifierOf(criteriaPurl);
 
-        // When both the component and the vulnerable software record have a distro
-        // qualifier, they must match *before* we perform the actual version comparison.
-        if (componentDistroQualifier != null && vsDistroQualifier != null) {
-            // Simplest case: the qualifiers just match without special interpretation.
-            if (!componentDistroQualifier.equals(vsDistroQualifier)) {
-                // Could still match, but depends on distro semantics.
-                // e.g. "debian-13" should match "trixie".
-                final OsDistribution componentDistro = OsDistribution.of(componentPurl);
-                final OsDistribution vsDistro = OsDistribution.of(criteria.purl());
+        if (componentDistroQualifier != null && componentDistroQualifier.equals(criteriaDistroQualifier)) {
+            return true;
+        }
 
-                if (componentDistro != null && vsDistro != null) {
-                    if (!componentDistro.matches(vsDistro)) {
-                        // Actual mismatch, e.g. "debian-13" != "sid".
-                        return false;
-                    }
-                } else if (componentDistro != null || vsDistro != null) {
-                    // One side was parsed, the other wasn't. The raw qualifier
-                    // strings already differ, so this is a mismatch.
-                    return false;
-                } else {
-                    // Neither side could be parsed. The raw qualifier strings
-                    // already differ, so treat as mismatch to avoid false positives.
-                    LOGGER.debug("Neither distro qualifier could be parsed for comparison: {} vs {}",
-                            componentDistroQualifier, vsDistroQualifier);
-                    return false;
+        final OsDistribution componentDistro = resolveOsDistro(componentPurl);
+        final OsDistribution criteriaDistro = resolveOsDistro(criteriaPurl, criteria);
+
+        if (componentDistro != null && criteriaDistro != null) {
+            return componentDistro.matches(criteriaDistro);
+        }
+
+        // Both sides carry explicit qualifiers, but they're not equal and at least
+        // one couldn't be parsed. Treat as a mismatch to avoid false positives.
+        if (componentDistroQualifier != null && criteriaDistroQualifier != null) {
+            LOGGER.debug(
+                    "Could not reconcile distro qualifiers: {} vs. {}",
+                    componentDistroQualifier,
+                    criteriaDistroQualifier);
+            return false;
+        }
+
+        // At least one side has no distro qualifier at all.
+        // Treat as match to avoid false negatives, since `distro` qualifiers
+        // are still not widely used across BOM generators and vuln DBs.
+        return true;
+    }
+
+    private static @Nullable OsDistribution resolveOsDistro(
+            @Nullable PackageURL purl, @Nullable MatchingCriteria matchingCriteria) {
+        if (purl == null) {
+            return null;
+        }
+
+        final var fromPurl = OsDistribution.of(purl);
+        if (fromPurl != null) {
+            return fromPurl;
+        }
+
+        // If the producer gave an explicit qualifier we couldn't read,
+        // don't override their intent with the criteria range heuristic below.
+        if (distroQualifierOf(purl) != null) {
+            return null;
+        }
+
+        // Red Hat versions are often verbose enough to be able to infer
+        // the distro version. This captures vuln DB records that do not
+        // explicitly declare distros.
+        if (matchingCriteria != null
+                && "rpm".equals(purl.getType())
+                && "redhat".equalsIgnoreCase(purl.getNamespace())) {
+            for (final String versionRangeBound : new @Nullable String[] {
+                matchingCriteria.versionEndExcluding(),
+                matchingCriteria.versionEndIncluding(),
+                matchingCriteria.version(),
+                matchingCriteria.versionStartExcluding(),
+                matchingCriteria.versionStartIncluding()
+            }) {
+                if (versionRangeBound == null) {
+                    continue;
+                }
+
+                final var fromVersionRangeBound = RedHatDistribution.ofRpmRelease(versionRangeBound);
+                if (fromVersionRangeBound != null) {
+                    return fromVersionRangeBound;
                 }
             }
         }
 
-        return true;
+        return null;
+    }
+
+    private static @Nullable OsDistribution resolveOsDistro(@Nullable PackageURL purl) {
+        return resolveOsDistro(purl, null);
     }
 
     private static @Nullable String distroQualifierOf(@Nullable PackageURL purl) {
@@ -662,25 +712,21 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
         return qualifiers != null ? qualifiers.get("distro") : null;
     }
 
-    /**
-     * Returns the PURL's version with any type-specific transformations applied to make it
-     * suitable for ecosystem-aware comparison. Returns the raw version when no transformation
-     * applies, or {@code null} if no version is set.
-     * <p>
-     * Applied transformations:
-     * <ul>
-     *   <li>{@code deb}/{@code rpm}: fold the {@code epoch} qualifier into the version as
-     *       {@code <epoch>:<version>} when not already encoded inline.</li>
-     * </ul>
-     */
+    /// Returns the PURL's version with any type-specific transformations applied to make it
+    /// suitable for ecosystem-aware comparison. Returns the raw version when no transformation
+    /// applies, or `null` if no version is set.
+    ///
+    /// Applied transformations:
+    ///
+    /// * `deb`/`rpm`: fold the `epoch` qualifier into the version as `<epoch>:<version>`
+    ///   when not already encoded inline.
     private static String effectiveVersionOf(PackageURL purl) {
         requireNonNull(purl, "purl must not be null");
         requireNonNull(purl.getVersion(), "purl version must not be null");
 
         final String version = purl.getVersion();
         final String type = purl.getType();
-        if (!PackageURL.StandardTypes.DEBIAN.equals(type)
-                && !PackageURL.StandardTypes.RPM.equals(type)) {
+        if (!PackageURL.StandardTypes.DEBIAN.equals(type) && !PackageURL.StandardTypes.RPM.equals(type)) {
             return version;
         }
 
@@ -700,7 +746,5 @@ final class InternalVulnAnalyzer implements VulnAnalyzer {
         return epoch + ":" + version;
     }
 
-    private record VulnMetadata(String vulnId, String source) {
-    }
-
+    private record VulnMetadata(String vulnId, String source) {}
 }
