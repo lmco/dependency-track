@@ -72,6 +72,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -83,6 +84,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import static org.dependencytrack.dex.DexWorkflowLabels.WF_LABEL_TRIGGERED_BY;
+import static org.dependencytrack.persistence.jdbi.JdbiFactory.useJdbiHandle;
 import static org.dependencytrack.persistence.jdbi.JdbiFactory.useJdbiTransaction;
 import static org.dependencytrack.persistence.jdbi.JdbiFactory.withJdbiHandle;
 
@@ -507,10 +509,10 @@ public class ComponentResource extends AbstractApiResource {
     @POST
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    @Operation(
-            summary = "Updates a component",
-            description =
-                    "<p>Requires permission <strong>PORTFOLIO_MANAGEMENT</strong> or <strong>PORTFOLIO_MANAGEMENT_UPDATE</strong></p>")
+    @Operation(summary = "Updates a component. ", description = """
+                        <p>Requires permission <strong>PORTFOLIO_MANAGEMENT</strong> or <strong>PORTFOLIO_MANAGEMENT_UPDATE</strong></p>
+                        <p>Updating a component will wipe away all previous licenses in favor of what is provided in the update.</p>
+                        """)
     @ApiResponses(
             value = {
                 @ApiResponse(
@@ -558,9 +560,9 @@ public class ComponentResource extends AbstractApiResource {
                 validator.validateProperty(jsonComponent, "blake3"),
                 validator.validateProperty(jsonComponent, "streebog_256"),
                 validator.validateProperty(jsonComponent, "streebog_512"));
-        Component updatedComponent;
+
         try (QueryManager qm = new QueryManager(getAlpineRequest())) {
-            updatedComponent = qm.callInTransaction(() -> {
+            return qm.callInTransaction(() -> {
                 final Component component = qm.getObjectByUuid(Component.class, jsonComponent.getUuid());
                 if (component != null) {
                     requireAccess(qm, component.getProject());
@@ -623,41 +625,39 @@ public class ComponentResource extends AbstractApiResource {
                     component.setNotes(StringUtils.trimToNull(jsonComponent.getNotes()));
 
                     qm.updateComponent(component, true);
+
+                    final List<ComponentDao.ComponentLicenseRow> licenseRows;
+                    if (component.getResolvedLicense() == null
+                            && component.getLicense() == null
+                            && component.getLicenseExpression() == null
+                            && component.getLicenseUrl() == null) {
+                        licenseRows = List.of();
+                    } else {
+                        licenseRows = List.of(new ComponentDao.ComponentLicenseRow(
+                                component.getId(),
+                                component.getResolvedLicense() != null
+                                        ? component.getResolvedLicense().getId()
+                                        : null,
+                                component.getLicense(),
+                                component.getLicenseExpression(),
+                                component.getLicenseUrl(),
+                                1,
+                                "DECLARED"));
+                    }
+
+                    useJdbiHandle(
+                            qm,
+                            handle -> handle.attach(ComponentDao.class)
+                                    .replaceComponentLicenses(List.of(component.getId()), licenseRows));
+
+                    return Response.ok(component).build();
+                } else {
+                    return Response.status(Response.Status.NOT_FOUND)
+                            .entity("The UUID of the component could not be found.")
+                            .build();
                 }
-                return component;
             });
         }
-
-        if (updatedComponent == null) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity("The UUID of the component could not be found.")
-                    .build();
-        }
-
-        final List<ComponentDao.ComponentLicenseRow> licenseRows;
-
-        if (updatedComponent.getResolvedLicense() == null
-                && updatedComponent.getLicense() == null
-                && updatedComponent.getLicenseExpression() == null
-                && updatedComponent.getLicenseUrl() == null) {
-            licenseRows = List.of();
-        } else {
-            licenseRows = List.of(new ComponentDao.ComponentLicenseRow(
-                    updatedComponent.getId(),
-                    updatedComponent.getResolvedLicense() != null
-                            ? updatedComponent.getResolvedLicense().getId()
-                            : null,
-                    updatedComponent.getLicense(),
-                    updatedComponent.getLicenseExpression(),
-                    updatedComponent.getLicenseUrl(),
-                    1,
-                    false));
-        }
-
-        useJdbiTransaction(handle -> handle.attach(ComponentDao.class)
-                .replaceComponentLicenses(List.of(updatedComponent.getId()), licenseRows));
-
-        return Response.ok(updatedComponent).build();
     }
 
     @DELETE
@@ -790,10 +790,13 @@ public class ComponentResource extends AbstractApiResource {
             //
             // We currently pay for the cost regardless of whether clients even want this information.
             // A future API version should make this optional.
-            final Map<UUID, String> packagePurlByComponentUuid = graph.values().stream()
-                    .filter(graphComponent -> graphComponent.purl() != null)
-                    .collect(Collectors.toMap(
-                            GraphComponent::uuid, graphComponent -> PurlUtil.purlPackageOnly(graphComponent.purl())));
+            final Map<UUID, String> packagePurlByComponentUuid = new HashMap<>();
+            for (final GraphComponent graphComponent : graph.values()) {
+                final PackageURL parsedPurl = PurlUtil.silentPurl(graphComponent.purl());
+                if (parsedPurl != null) {
+                    packagePurlByComponentUuid.put(graphComponent.uuid(), PurlUtil.purlPackageOnly(parsedPurl));
+                }
+            }
             final Map<String, String> latestVersionByPackagePurl = new PackageMetadataDao(handle)
                     .getAll(new HashSet<>(packagePurlByComponentUuid.values())).stream()
                             .filter(pkgMetadata -> pkgMetadata.latestVersion() != null)

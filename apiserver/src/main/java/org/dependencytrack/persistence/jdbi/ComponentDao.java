@@ -237,6 +237,9 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                  , "C"."GROUP"
                  , "C"."INTERNAL"
                  , "C"."LAST_RISKSCORE"
+                 , "C"."LICENSE" AS "license"
+                 , "C"."LICENSE_EXPRESSION" AS "licenseExpression"
+                 , "C"."LICENSE_URL" AS "licenseUrl"
                  , "C"."TEXT"
                  , "C"."SCOPE"
                  , "C"."MD5"
@@ -252,9 +255,6 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                  , "C"."SWIDTAGID"
                  , "C"."UUID"
                  , "C"."VERSION"
-                 , "CL"."LICENSE" AS "componentLicenseName"
-                 , "CL"."LICENSE_EXPRESSION" AS "licenseExpression"
-                 , "CL"."LICENSE_URL" AS "licenseUrl"
                  , "L"."ISCUSTOMLICENSE"
                  , "L"."FSFLIBRE" AS "isFsfLibre"
                  , "L"."LICENSEID"
@@ -268,17 +268,8 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                  , (EXTRACT(EPOCH FROM "PAM"."PUBLISHED_AT") * 1000000)::bigint AS "artifactPublishedAtMicros"
             </#if>
               FROM "COMPONENT" "C"
-              LEFT JOIN LATERAL (
-                SELECT *
-                FROM "COMPONENTLICENSES" AS "CL"
-                WHERE "CL"."COMPONENTID" = "C"."ID"
-                ORDER BY
-                  "CL"."ORDINALITY" ASC,
-                  "CL"."ID" ASC
-                LIMIT 1
-              ) AS "CL" ON TRUE
-              LEFT JOIN "LICENSE" AS "L"
-                ON "L"."ID" = "CL"."LICENSE_ID"
+              LEFT JOIN "LICENSE" "L"
+                ON "C"."LICENSE_ID" = "L"."ID"
             <#if sortByColumn?has_content && sortByColumn == "PUBLISHED_AT">
               LEFT JOIN "PACKAGE_ARTIFACT_METADATA" "PAM"
                 ON "PAM"."PURL" = "C"."PURL"
@@ -517,6 +508,9 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                         "C"."GROUP",
                         "C"."INTERNAL",
                         "C"."LAST_RISKSCORE",
+                        "C"."LICENSE" AS "license",
+                        "C"."LICENSE_EXPRESSION" AS "licenseExpression",
+                        "C"."LICENSE_URL" AS "licenseUrl",
                         "C"."TEXT",
                         "C"."SCOPE",
                         "C"."MD5",
@@ -532,9 +526,6 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                         "C"."SWIDTAGID",
                         "C"."UUID",
                         "C"."VERSION",
-                        "CL"."LICENSE" AS "componentLicenseName",
-                        "CL"."LICENSE_EXPRESSION" AS "licenseExpression",
-                        "CL"."LICENSE_URL" AS "licenseUrl",
                         "L"."LICENSEID",
                         "L"."UUID" AS "licenseUuid",
                         "L"."NAME" AS "licenseName",
@@ -543,17 +534,7 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                         "PROJECT"."VERSION" AS "projectVersion"
                 FROM "COMPONENT" "C"
                 INNER JOIN "PROJECT" ON "C"."PROJECT_ID" = "PROJECT"."ID"
-                LEFT JOIN LATERAL (
-                  SELECT *
-                  FROM "COMPONENTLICENSES" AS "CL"
-                  WHERE "CL"."COMPONENTID" = "C"."ID"
-                  ORDER BY
-                    "CL"."ORDINALITY" ASC,
-                    "CL"."ID" ASC
-                    LIMIT 1
-                  ) AS "CL" ON TRUE
-                LEFT JOIN "LICENSE" AS "L"
-                  ON "L"."ID" = "CL"."LICENSE_ID"
+                LEFT OUTER JOIN "LICENSE" "L" ON "C"."LICENSE_ID" = "L"."ID"
                 WHERE ${apiProjectAclCondition}
                 AND ${whereConditions?join(" AND ")}
                 <#assign castedLastSortValue>
@@ -665,7 +646,7 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
             String licenseExpression,
             String licenseUrl,
             long ordinality,
-            boolean concluded) {}
+            String acknowledgement) {}
 
     default void replaceComponentLicenses(List<Long> componentIds, List<ComponentLicenseRow> updates) {
 
@@ -696,7 +677,7 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                 "LICENSE_EXPRESSION",
                 "LICENSE_URL",
                 "ORDINALITY",
-                "CONCLUDED"
+                "ACKNOWLEDGEMENT"
             )
             VALUES (
                 :componentId,
@@ -705,7 +686,7 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                 :licenseExpression,
                 :licenseUrl,
                 :ordinality,
-                :concluded
+                :acknowledgement
             )
             """);
 
@@ -716,7 +697,7 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                     .bind("licenseExpression", update.licenseExpression())
                     .bind("licenseUrl", update.licenseUrl())
                     .bind("ordinality", update.ordinality())
-                    .bind("concluded", update.concluded())
+                    .bind("acknowledgement", update.acknowledgement())
                     .add();
         }
 
@@ -737,7 +718,7 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                 cl."LICENSE_EXPRESSION",
                 cl."LICENSE_URL",
                 cl."ORDINALITY",
-                cl."CONCLUDED"
+                cl."ACKNOWLEDGEMENT"
             FROM "COMPONENTLICENSES" AS cl
             WHERE cl."COMPONENTID" = ANY(:componentIds)
             ORDER BY cl."COMPONENTID",
@@ -760,7 +741,44 @@ public interface ComponentDao extends SqlObject, PaginationSupport {
                                     rs.getString("LICENSE_EXPRESSION"),
                                     rs.getString("LICENSE_URL"),
                                     rs.getLong("ORDINALITY"),
-                                    rs.getBoolean("CONCLUDED")));
+                                    rs.getString("ACKNOWLEDGEMENT")));
+
+                    return result;
+                });
+    }
+
+    default Map<Long, List<ComponentLicenseRow>> getLicenseRows(final Collection<Long> componentIds) {
+        if (componentIds.isEmpty()) {
+            return Map.of();
+        }
+
+        return getHandle()
+                .createQuery("""
+                SELECT "COMPONENTID",
+                    "LICENSE_ID",
+                    "LICENSE",
+                    "LICENSE_EXPRESSION",
+                    "LICENSE_URL",
+                    "ORDINALITY",
+                    "ACKNOWLEDGEMENT"
+                FROM "COMPONENTLICENSES"
+                WHERE "COMPONENTID" = ANY(:componentIds)
+                ORDER BY "COMPONENTID", "ORDINALITY", "ID"
+                """)
+                .bindArray("componentIds", Long.class, componentIds)
+                .reduceResultSet(new HashMap<>(), (result, rs, ctx) -> {
+                    final long componentId = rs.getLong("COMPONENTID");
+                    final Long licenseId = rs.getObject("LICENSE_ID", Long.class);
+
+                    result.computeIfAbsent(componentId, ignored -> new ArrayList<>())
+                            .add(new ComponentLicenseRow(
+                                    componentId,
+                                    licenseId,
+                                    rs.getString("LICENSE"),
+                                    rs.getString("LICENSE_EXPRESSION"),
+                                    rs.getString("LICENSE_URL"),
+                                    rs.getLong("ORDINALITY"),
+                                    rs.getString("ACKNOWLEDGEMENT")));
 
                     return result;
                 });

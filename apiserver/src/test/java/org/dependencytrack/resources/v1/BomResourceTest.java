@@ -37,6 +37,7 @@ import org.cyclonedx.parsers.XmlParser;
 import org.dependencytrack.JerseyTestExtension;
 import org.dependencytrack.ResourceTest;
 import org.dependencytrack.auth.Permissions;
+import org.dependencytrack.common.ConfigKeys;
 import org.dependencytrack.common.pagination.Page;
 import org.dependencytrack.dex.engine.api.DexEngine;
 import org.dependencytrack.dex.engine.api.WorkflowRunMetadata;
@@ -66,6 +67,7 @@ import org.dependencytrack.parser.cyclonedx.CycloneDxValidator;
 import org.dependencytrack.parser.cyclonedx.util.ModelConverter;
 import org.dependencytrack.persistence.command.MakeAnalysisCommand;
 import org.dependencytrack.resources.v1.vo.BomSubmitRequest;
+import org.dependencytrack.support.config.source.memory.MemoryConfigSource;
 import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.client.HttpUrlConnectorProvider;
 import org.glassfish.jersey.inject.hk2.AbstractBinder;
@@ -77,6 +79,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -128,6 +131,7 @@ import static org.dependencytrack.parser.cyclonedx.CycloneDxBomAssert.assertThat
 import static org.dependencytrack.persistence.jdbi.JdbiFactory.useJdbiHandle;
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
@@ -623,6 +627,140 @@ class BomResourceTest extends ResourceTest {
 
         Project project = qm.createProject("Acme Example", null, "1.0", null, null, null, null, false);
         Component c = new Component();
+        Component cExp = new Component();
+        c.setProject(project);
+        c.setName("sample-component");
+        c.setVersion("1.0");
+        cExp.setProject(project);
+        cExp.setName("sample-component-expression");
+        cExp.setVersion("1.0");
+        c.setDirectDependencies("[]");
+        cExp.setDirectDependencies("[]");
+        Component component = qm.createComponent(c, false);
+        Component componentExp = qm.createComponent(cExp, false);
+
+        org.dependencytrack.model.License license = new org.dependencytrack.model.License();
+        license.setId(1234);
+        license.setName("CustomName");
+        license.setCustomLicense(true);
+        qm.createCustomLicense(license, false);
+
+        final long componentId = component.getId();
+        useJdbiHandle(handle -> handle.createUpdate("""
+            INSERT INTO "COMPONENTLICENSES" (
+                "COMPONENTID",
+                "LICENSE_ID",
+                "ORDINALITY",
+                "ACKNOWLEDGEMENT"
+            )
+            VALUES (:componentId, :licenseId, 1, 'DECLARED')
+            """)
+                .bind("componentId", component.getId())
+                .bind("licenseId", license.getId())
+                .execute());
+        useJdbiHandle(handle -> handle.createUpdate("""
+                INSERT INTO "COMPONENTLICENSES" (
+                    "COMPONENTID",
+                    "LICENSE_EXPRESSION",
+                    "ORDINALITY",
+                    "ACKNOWLEDGEMENT"
+                )
+                VALUES (:componentId, :licenseExpression, 1, 'DECLARED')
+                """)
+                .bind("componentId", componentExp.getId())
+                .bind("licenseExpression", "Apache-2.0 OR MIT")
+                .execute());
+
+        qm.persist(project);
+        Response response = jersey.target(V1_BOM + "/cyclonedx/project/" + project.getUuid())
+                .request()
+                .header(X_API_KEY, apiKey)
+                .get(Response.class);
+
+        final String jsonResponse = getPlainTextBody(response);
+        assertThatBom(jsonResponse).isValid().hasUniqueBomRefs();
+        assertThatJson(jsonResponse)
+                .withMatcher("component", equalTo(component.getUuid().toString()))
+                .withMatcher(
+                        "expressionComponent", equalTo(componentExp.getUuid().toString()))
+                .withMatcher("projectUuid", equalTo(project.getUuid().toString()))
+                .isEqualTo(json("""
+                        {
+                            "bomFormat": "CycloneDX",
+                            "specVersion": "1.5",
+                            "serialNumber": "${json-unit.ignore}",
+                            "version": 1,
+                            "metadata": {
+                                "timestamp": "${json-unit.any-string}",
+                                "tools": {
+                                    "components": [
+                                        {
+                                            "type": "application",
+                                            "supplier": {
+                                              "name": "OWASP"
+                                            },
+                                            "name": "Dependency-Track",
+                                            "version": "${json-unit.any-string}"
+                                        }
+                                    ]
+                                },
+                                "component": {
+                                    "type": "library",
+                                    "bom-ref": "${json-unit.matches:projectUuid}",
+                                    "name": "Acme Example",
+                                    "version": "1.0"
+                                }
+                            },
+                            "components": [
+                                {
+                                    "type": "library",
+                                    "bom-ref": "${json-unit.matches:component}",
+                                    "name": "sample-component",
+                                    "version": "1.0",
+                                    "licenses": [
+                                        {
+                                            "license": {
+                                                "name": "CustomName"
+                                            }
+                                        }
+                                    ]
+                                },
+                                {
+                                    "type": "library",
+                                    "bom-ref": "${json-unit.matches:expressionComponent}",
+                                    "name": "sample-component-expression",
+                                    "version": "1.0",
+                                    "licenses": [
+                                        {
+                                            "expression": "Apache-2.0 OR MIT"
+                                        }
+                                    ]
+                                }
+                            ],
+                            "dependencies": [
+                                {
+                                    "ref": "${json-unit.matches:projectUuid}",
+                                    "dependsOn": []
+                                },
+                                {
+                                    "ref": "${json-unit.matches:component}",
+                                    "dependsOn": []
+                                },
+                                {
+                                    "ref": "${json-unit.matches:expressionComponent}",
+                                    "dependsOn": []
+                                }
+                            ]
+                        }
+                        """));
+    }
+
+    @Test
+    void exportProjectAsCycloneDxMultipleLicensesTest() {
+        initializeWithPermissions(Permissions.VIEW_PORTFOLIO);
+
+        Project project = qm.createProject("Acme Example", null, "1.0", null, null, null, null, false);
+        Component c = new Component();
         c.setProject(project);
         c.setName("sample-component");
         c.setVersion("1.0");
@@ -639,13 +777,22 @@ class BomResourceTest extends ResourceTest {
             INSERT INTO "COMPONENTLICENSES" (
                 "COMPONENTID",
                 "LICENSE_ID",
+                "LICENSE",
+                "LICENSE_URL",
                 "ORDINALITY",
-                "CONCLUDED"
+                "ACKNOWLEDGEMENT"
             )
-            VALUES (:componentId, :licenseId, 1, false)
+            VALUES
+                (:componentId, :licenseId, NULL, :customLicenseUrl, 2, 'DECLARED'),
+                (:componentId, NULL, :firstLicense, :firstLicenseUrl, 1, 'DECLARED'),
+                (:componentId, NULL, :thirdLicense, NULL, 3, 'DECLARED')
             """)
                 .bind("componentId", c.getId())
                 .bind("licenseId", license.getId())
+                .bind("customLicenseUrl", "https://example.com/custom")
+                .bind("firstLicense", "First license")
+                .bind("firstLicenseUrl", "https://example.com/first")
+                .bind("thirdLicense", "Third license")
                 .execute());
         qm.persist(project);
         Response response = jersey.target(V1_BOM + "/cyclonedx/project/" + project.getUuid())
@@ -692,12 +839,24 @@ class BomResourceTest extends ResourceTest {
                                     "name": "sample-component",
                                     "version": "1.0",
                                     "licenses": [
-                                        {
+                                          {
                                             "license": {
-                                                "name": "CustomName"
+                                              "name": "First license",
+                                              "url": "https://example.com/first"
                                             }
-                                        }
-                                    ]
+                                          },
+                                          {
+                                            "license": {
+                                              "name": "CustomName",
+                                              "url": "https://example.com/custom"
+                                            }
+                                          },
+                                          {
+                                            "license": {
+                                              "name": "Third license"
+                                            }
+                                          }
+                                        ]
                                 }
                             ],
                             "dependencies": [
@@ -2711,6 +2870,64 @@ class BomResourceTest extends ResourceTest {
     }
 
     @Test
+    void shouldReportTokenBeingProcessedWhenChildWorkflowRunCompletesBeforeParent() {
+        initializeWithPermissions(Permissions.BOM_UPLOAD);
+
+        final var parentRunId = UUID.randomUUID();
+        final var parentRunMetadata = new WorkflowRunMetadata(
+                parentRunId,
+                null,
+                "analyze-project",
+                1,
+                null,
+                "default",
+                WorkflowRunStatus.RUNNING,
+                null,
+                0,
+                null,
+                null,
+                java.time.Instant.now(),
+                java.time.Instant.now(),
+                null,
+                null);
+        final var childRunMetadata = new WorkflowRunMetadata(
+                UUID.randomUUID(),
+                parentRunId,
+                "vuln-analysis",
+                1,
+                null,
+                "default",
+                WorkflowRunStatus.COMPLETED,
+                null,
+                0,
+                null,
+                null,
+                java.time.Instant.now(),
+                java.time.Instant.now(),
+                null,
+                java.time.Instant.now());
+
+        doReturn(new Page<>(List.of(parentRunMetadata)))
+                .when(DEX_ENGINE_MOCK)
+                .listRuns(argThat(req -> req != null && req.onlyRootRuns()));
+        doReturn(new Page<>(List.of(childRunMetadata)))
+                .when(DEX_ENGINE_MOCK)
+                .listRuns(argThat(req -> req != null && !req.onlyRootRuns()));
+
+        final Response response = jersey.target(V1_BOM + "/token/2ff20ad6-587c-4db6-8788-cca7a9b0dc1b")
+                .request()
+                .header(X_API_KEY, apiKey)
+                .get(Response.class);
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.SC_OK);
+        assertThatJson(getPlainTextBody(response)).isEqualTo(/* language=JSON */ """
+                {
+                  "processing": true,
+                  "status": "RUNNING"
+                }
+                """);
+    }
+
+    @Test
     void shouldReportTokenNotBeingProcessed() {
         initializeWithPermissions(Permissions.BOM_UPLOAD);
 
@@ -2952,5 +3169,53 @@ class BomResourceTest extends ResourceTest {
                   "projectUuid": "${json-unit.any-string}"
                 }
                 """);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"-1, 413", "0, 200"})
+    void uploadBomEnforcesMaxSizeAfterDecompressionTest(int maxSizeOffset, int expectedStatus) throws Exception {
+        initializeWithPermissions(Permissions.BOM_UPLOAD);
+        final var project = new Project();
+        project.setName("acme-app");
+        qm.createProject(project, List.of(), false);
+
+        final byte[] bomBytes = resourceToByteArray("/unit/bom-1.xml");
+        final var encodedBomStream = new ByteArrayOutputStream();
+        try (final var encoder = new ZstdOutputStream(encodedBomStream)) {
+            encoder.write(bomBytes);
+        }
+
+        MemoryConfigSource.setProperty(
+                ConfigKeys.BOM_UPLOAD_MAX_SIZE_BYTES, String.valueOf(bomBytes.length + maxSizeOffset));
+
+        final var multiPart = new FormDataMultiPart()
+                .field("project", project.getUuid().toString())
+                .field("bom", encodedBomStream.toByteArray(), new MediaType("application", "zstd"));
+
+        final var client = ClientBuilder.newClient(
+                new ClientConfig().register(MultiPartFeature.class).connectorProvider(new HttpUrlConnectorProvider()));
+
+        final Response response;
+        try {
+            response = client.target(jersey.target(V1_BOM).getUri())
+                    .request()
+                    .header(X_API_KEY, apiKey)
+                    .post(Entity.entity(multiPart, multiPart.getMediaType()));
+        } finally {
+            MemoryConfigSource.removeProperty(ConfigKeys.BOM_UPLOAD_MAX_SIZE_BYTES);
+        }
+
+        assertThat(response.getStatus()).isEqualTo(expectedStatus);
+        if (expectedStatus == 413) {
+            assertThat(response.getHeaderString("Content-Type")).isEqualTo("application/problem+json");
+            assertThatJson(getPlainTextBody(response))
+                    .isEqualTo(/* language=JSON */ """
+                    {
+                      "status": 413,
+                      "title": "The uploaded document is too large",
+                      "detail": "The uploaded document exceeds the maximum size of %d bytes"
+                    }
+                    """.formatted(bomBytes.length - 1));
+        }
     }
 }

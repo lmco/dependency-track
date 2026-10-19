@@ -53,7 +53,6 @@ import static org.dependencytrack.policy.cel.CelPolicyTypes.TYPE_PROJECT_METADAT
 import static org.dependencytrack.policy.cel.CelPolicyTypes.TYPE_PROJECT_PROPERTY;
 import static org.dependencytrack.policy.cel.CelPolicyTypes.TYPE_VULNERABILITY;
 import static org.dependencytrack.policy.cel.persistence.CelPolicyFieldMappingRegistry.COMPONENT_FIELDS;
-import static org.dependencytrack.policy.cel.persistence.CelPolicyFieldMappingRegistry.COMPONENT_LICENSE_FIELDS;
 import static org.dependencytrack.policy.cel.persistence.CelPolicyFieldMappingRegistry.COMPONENT_PROPERTY_FIELDS;
 import static org.dependencytrack.policy.cel.persistence.CelPolicyFieldMappingRegistry.LICENSE_FIELDS;
 import static org.dependencytrack.policy.cel.persistence.CelPolicyFieldMappingRegistry.LICENSE_GROUP_FIELDS;
@@ -82,10 +81,9 @@ public final class CelPolicyDao {
                 .filter(fieldName -> !"resolved_license".equals(fieldName))
                 .toList();
         fetchColumns.addAll(selectColumns(COMPONENT_FIELDS, fieldNames));
-        fetchColumns.addAll(selectColumns(COMPONENT_LICENSE_FIELDS, fieldNames));
 
         if (needsResolvedLicense) {
-            fetchColumns.add("cl.\"LICENSE_ID\" AS resolved_license_id");
+            fetchColumns.add("c.\"LICENSE_ID\" AS resolved_license_id");
         }
 
         final boolean shouldJoinPm =
@@ -104,15 +102,6 @@ public final class CelPolicyDao {
                         <#-- @ftlvariable name="shouldJoinPm" type="boolean" -->
                         SELECT ${fetchColumns?join(", ")}
                           FROM "COMPONENT" AS c
-                          LEFT JOIN LATERAL (
-                            SELECT *
-                            FROM "COMPONENTLICENSES" AS "cl"
-                            WHERE "cl"."COMPONENTID" = "c"."ID"
-                            ORDER BY
-                              "cl"."ORDINALITY" ASC,
-                              "cl"."ID" ASC
-                            LIMIT 1
-                          ) AS "cl" ON TRUE
                         <#if shouldJoinPam!false>
                           LEFT JOIN "PACKAGE_ARTIFACT_METADATA" AS pam
                             ON pam."PURL" = c."PURL"
@@ -223,19 +212,10 @@ public final class CelPolicyDao {
                     .createQuery(/* language=InjectedFreeMarker */ """
                             <#-- @ftlvariable name="fetchColumns" type="java.util.Collection<String>" -->
                             SELECT DISTINCT ${fetchColumns?join(", ")}
-                              FROM "COMPONENT" AS c
-                              LEFT JOIN LATERAL (
-                                SELECT *
-                                FROM "COMPONENTLICENSES" AS "cl"
-                                WHERE "cl"."COMPONENTID" = "c"."ID"
-                                ORDER BY
-                                  "cl"."ORDINALITY" ASC,
-                                  "cl"."ID" ASC
-                                LIMIT 1
-                              ) AS "cl" ON TRUE
-                              INNER JOIN "LICENSE" AS l
-                                ON cl."LICENSE_ID" = l."ID"
-                              WHERE c."PROJECT_ID" = :projectId
+                              FROM "LICENSE" AS l
+                             INNER JOIN "COMPONENT" AS c
+                                ON c."LICENSE_ID" = l."ID"
+                             WHERE c."PROJECT_ID" = :projectId
                             """)
                     .define("fetchColumns", fetchColumns)
                     .bind("projectId", projectId)
@@ -279,18 +259,9 @@ public final class CelPolicyDao {
                         <#-- @ftlvariable name="groupByColumns" type="java.util.Collection<String>" -->
                         SELECT DISTINCT
                           ${fetchColumns?join(", ")}
-                          FROM "COMPONENT" AS c
-                            LEFT JOIN LATERAL (
-                              SELECT *
-                              FROM "COMPONENTLICENSES" AS "cl"
-                              WHERE "cl"."COMPONENTID" = "c"."ID"
-                              ORDER BY
-                                "cl"."ORDINALITY" ASC,
-                                "cl"."ID" ASC
-                              LIMIT 1
-                            ) AS "cl" ON TRUE
-                            INNER JOIN "LICENSE" AS l
-                              ON cl."LICENSE_ID" = l."ID"
+                            FROM "LICENSE" AS l
+                         INNER JOIN "COMPONENT" AS c
+                            ON c."LICENSE_ID" = l."ID"
                           LEFT JOIN "LICENSEGROUP_LICENSE" AS lgl
                             ON lgl."LICENSE_ID" = l."ID"
                           LEFT JOIN "LICENSEGROUP" AS lg
@@ -514,6 +485,7 @@ public final class CelPolicyDao {
         final var projIds = new Long[size];
         final var condIds = new Long[size];
         final var types = new String[size];
+        final var texts = new String[size];
 
         int i = 0;
         for (final var entry : reportedViolationsByComponentId.entrySet()) {
@@ -523,13 +495,14 @@ public final class CelPolicyDao {
                 projIds[i] = projectId;
                 condIds[i] = violation.getPolicyCondition().getId();
                 types[i] = violation.getType().name();
+                texts[i] = violation.getText();
                 i++;
             }
         }
 
         return jdbiHandle
                 .createQuery("""
-                        WITH created AS (
+                        WITH upserted AS (
                           INSERT INTO "POLICYVIOLATION" (
                             "UUID"
                           , "TIMESTAMP"
@@ -537,16 +510,21 @@ public final class CelPolicyDao {
                           , "PROJECT_ID"
                           , "POLICYCONDITION_ID"
                           , "TYPE"
+                          , "TEXT"
                           )
                           SELECT GEN_RANDOM_UUID()
                                , t.*
-                            FROM UNNEST(:timestamps, :componentIds, :projectIds, :policyConditionIds, :types)
-                              AS t("TIMESTAMP", "COMPONENT_ID", "PROJECT_ID", "POLICYCONDITION_ID", "TYPE")
+                            FROM UNNEST(:timestamps, :componentIds, :projectIds, :policyConditionIds, :types, :texts)
+                              AS t("TIMESTAMP", "COMPONENT_ID", "PROJECT_ID", "POLICYCONDITION_ID", "TYPE", "TEXT")
                            ORDER BY t."PROJECT_ID"
                                   , t."COMPONENT_ID"
                                   , t."POLICYCONDITION_ID"
-                          ON CONFLICT DO NOTHING
-                          RETURNING "ID"
+                          ON CONFLICT ("COMPONENT_ID", "PROJECT_ID", "POLICYCONDITION_ID") DO UPDATE
+                          SET "TEXT" = EXCLUDED."TEXT"
+                          WHERE "POLICYVIOLATION"."TEXT" IS DISTINCT FROM EXCLUDED."TEXT"
+                          -- xmax is zero for rows created by this statement,
+                          -- and non-zero for existing rows that were updated.
+                          RETURNING "ID", (xmax = 0) AS "CREATED"
                         ),
                         deleted AS (
                           DELETE FROM "POLICYVIOLATION"
@@ -561,13 +539,14 @@ public final class CelPolicyDao {
                                 FOR UPDATE
                            )
                         )
-                        SELECT "ID" FROM created
+                        SELECT "ID" FROM upserted WHERE "CREATED"
                         """)
                 .bind("timestamps", timestamps)
                 .bind("componentIds", componentIds)
                 .bind("projectIds", projIds)
                 .bind("policyConditionIds", condIds)
                 .bind("types", types)
+                .bind("texts", texts)
                 .bind("projectId", projectId)
                 .mapTo(Long.class)
                 .set();
@@ -692,7 +671,6 @@ public final class CelPolicyDao {
         }
 
         final List<String> fetchColumns = new ArrayList<>(selectColumns(COMPONENT_FIELDS, componentRequirements));
-        fetchColumns.addAll(selectColumns(COMPONENT_LICENSE_FIELDS, componentRequirements));
 
         final boolean shouldJoinPm = componentRequirements.contains("latest_version")
                 || componentRequirements.contains("latest_version_published_at");
@@ -713,15 +691,6 @@ public final class CelPolicyDao {
                              , ${fetchColumns?join(", ")}
                         </#if>
                           FROM "COMPONENT" AS c
-                          LEFT JOIN LATERAL (
-                            SELECT *
-                            FROM "COMPONENTLICENSES" AS "cl"
-                            WHERE "cl"."COMPONENTID" = "c"."ID"
-                            ORDER BY
-                              "cl"."ORDINALITY" ASC,
-                              "cl"."ID" ASC
-                            LIMIT 1
-                          ) AS "cl" ON TRUE
                         <#if shouldJoinPam!false>
                           LEFT JOIN "PACKAGE_ARTIFACT_METADATA" AS pam
                             ON pam."PURL" = c."PURL"
