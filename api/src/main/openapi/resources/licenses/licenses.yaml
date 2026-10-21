@@ -33,8 +33,6 @@ get:
         format: uuid
     - $ref: "../../shared/parameters/pagination-limit.yaml"
     - $ref: "../../shared/parameters/page-token.yaml"
-    - $ref: "../../shared/parameters/sort-direction.yaml"
-    - $ref: "../../shared/parameters/sort-by.yaml"
   responses:
     "200":
       description: A list of licenses for the given component UUID

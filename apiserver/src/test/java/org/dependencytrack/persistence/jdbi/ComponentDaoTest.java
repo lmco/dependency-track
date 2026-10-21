@@ -199,16 +199,23 @@ public class ComponentDaoTest extends PersistenceCapableTest {
 
         final var originalRows = List.of(
                 new ComponentDao.ComponentLicenseRow(
-                        component.getId(), null, "License A", null, "https://example.com/license-a", 1, "DECLARED"),
+                        null,
+                        component.getId(),
+                        null,
+                        "License A",
+                        null,
+                        "https://example.com/license-a",
+                        1,
+                        "DECLARED"),
                 new ComponentDao.ComponentLicenseRow(
-                        component.getId(), null, null, "MIT OR Apache-2.0", null, 2, "DECLARED"),
+                        null, component.getId(), null, null, "MIT OR Apache-2.0", null, 2, "DECLARED"),
                 new ComponentDao.ComponentLicenseRow(
-                        otherComponent.getId(), null, "Other License", null, null, 1, "DECLARED"));
+                        null, otherComponent.getId(), null, "Other License", null, null, 1, "DECLARED"));
 
         componentDao.replaceComponentLicenses(List.of(component.getId(), otherComponent.getId()), originalRows);
 
         final var replacementRows = List.of(new ComponentDao.ComponentLicenseRow(
-                component.getId(), null, "Replacement License", null, null, 1, "DECLARED"));
+                null, component.getId(), null, "Replacement License", null, null, 1, "DECLARED"));
 
         componentDao.replaceComponentLicenses(List.of(component.getId()), replacementRows);
 

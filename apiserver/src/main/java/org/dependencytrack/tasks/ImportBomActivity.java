@@ -465,6 +465,7 @@ public final class ImportBomActivity implements Activity<ImportBomArg, Void> {
                         && (expression.equals(candidate.getId()) || expression.equals(candidate.getName()));
 
                 rows.add(new ComponentDao.ComponentLicenseRow(
+                        null,
                         persistedId,
                         licenseId,
                         licenseName,
@@ -483,7 +484,7 @@ public final class ImportBomActivity implements Activity<ImportBomArg, Void> {
                                 .noneMatch(candidate -> expression.equals(candidate.getId())
                                         || expression.equals(candidate.getName())))) {
             rows.add(new ComponentDao.ComponentLicenseRow(
-                    persistedId, null, null, expression, null, ordinality, "DECLARED"));
+                    null, persistedId, null, null, expression, null, ordinality, "DECLARED"));
         }
 
         return rows;
