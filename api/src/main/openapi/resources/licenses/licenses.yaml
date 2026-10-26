@@ -52,5 +52,7 @@ get:
       $ref: "../../shared/responses/generic-unauthorized-error.yaml"
     "403":
       $ref: "../../shared/responses/generic-forbidden-error.yaml"
+    "404":
+      $ref: "../../shared/responses/generic-not-found-error.yaml"
     default:
       $ref: "../../shared/responses/generic-error.yaml"

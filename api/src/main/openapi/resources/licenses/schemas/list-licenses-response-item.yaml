@@ -36,9 +36,9 @@ properties:
     format: int64
     minimum: 1
     description: Position of the license in the source BOM.
-  concluded:
-    type: boolean
-    description: Whether the license has been concluded as opposed to only declared.
+  acknowledgement:
+    type: string
+    description: Whether the license has been declared or concluded.
 required:
   - ordinality
-  - concluded
+  - acknowledgement
