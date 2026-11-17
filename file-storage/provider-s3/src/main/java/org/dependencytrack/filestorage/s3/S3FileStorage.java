@@ -26,6 +26,7 @@ import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
 import io.minio.errors.ErrorResponseException;
+import org.dependencytrack.filestorage.api.FileNamePrefixes;
 import org.dependencytrack.filestorage.api.FileStorage;
 import org.dependencytrack.filestorage.proto.v1.FileMetadata;
 import org.slf4j.Logger;
@@ -57,11 +58,13 @@ final class S3FileStorage implements FileStorage {
 
     private final MinioClient s3Client;
     private final String bucketName;
+    private final String retainedBomBucketName;
     private final int compressionLevel;
 
-    S3FileStorage(MinioClient s3Client, String bucketName, int compressionLevel) {
+    S3FileStorage(MinioClient s3Client, String bucketName, String retainedBomBucketName, int compressionLevel) {
         this.s3Client = s3Client;
         this.bucketName = bucketName;
+        this.retainedBomBucketName = retainedBomBucketName;
         this.compressionLevel = compressionLevel;
     }
 
@@ -113,7 +116,9 @@ final class S3FileStorage implements FileStorage {
         requireValidFileName(fileName);
         requireNonNull(contentStream, "contentStream must not be null");
 
-        final var fileLocation = new S3FileLocation(bucketName, fileName);
+        final String targetBucketName =
+                fileName.startsWith(FileNamePrefixes.RETAINED_BOM) ? retainedBomBucketName : bucketName;
+        final var fileLocation = new S3FileLocation(targetBucketName, fileName);
         final URI locationUri = fileLocation.asURI();
 
         final MessageDigest messageDigest;

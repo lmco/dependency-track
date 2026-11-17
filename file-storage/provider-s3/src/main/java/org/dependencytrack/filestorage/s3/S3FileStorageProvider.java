@@ -80,8 +80,20 @@ public final class S3FileStorageProvider implements FileStorageProvider {
         final MinioClient s3Client = clientBuilder.build();
 
         final var bucketName = config.getValue("dt.file-storage.s3.bucket", String.class);
+        final Optional<String> retainedBomBucketName =
+                config.getOptionalValue("dt.file-storage.s3.retained-bom-bucket", String.class);
+        if (retainedBomBucketName.filter(bucketName::equals).isPresent()) {
+            throw new IllegalStateException(
+                    "dt.file-storage.s3.retained-bom-bucket must differ from dt.file-storage.s3.bucket (%s)"
+                            .formatted(bucketName));
+        }
+
         LOGGER.debug("Verifying existence of bucket {}", bucketName);
         requireBucketExists(s3Client, bucketName);
+        retainedBomBucketName.ifPresent(name -> {
+            LOGGER.debug("Verifying existence of bucket {}", name);
+            requireBucketExists(s3Client, name);
+        });
 
         final int compressionLevel = config.getOptionalValue("dt.file-storage.s3.compression-level", int.class)
                 .orElse(5);
@@ -90,7 +102,7 @@ public final class S3FileStorageProvider implements FileStorageProvider {
                     .formatted(Zstd.minCompressionLevel(), Zstd.maxCompressionLevel(), compressionLevel));
         }
 
-        return new S3FileStorage(s3Client, bucketName, compressionLevel);
+        return new S3FileStorage(s3Client, bucketName, retainedBomBucketName.orElse(bucketName), compressionLevel);
     }
 
     static Optional<Provider> resolveCredentialsProvider(Config config, OkHttpClient httpClient) {

@@ -45,7 +45,8 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 class S3FileStorageTest {
 
     @Container
-    private static final S3MockContainer s3MockContainer = new S3MockContainer("5.0.0").withInitialBuckets("test");
+    private static final S3MockContainer s3MockContainer =
+            new S3MockContainer("5.0.0").withInitialBuckets("test,test-retained");
 
     @Test
     void shouldThrowWhenBucketDoesNotExist() {
@@ -72,6 +73,25 @@ class S3FileStorageTest {
                             Map.entry("dt.file-storage.s3.connect-timeout-ms", "500")))) {}
                 })
                 .withMessage("Failed to determine if bucket does-not-exist exists");
+    }
+
+    @Test
+    void shouldThrowWhenRetainedBomBucketEqualsBucket() {
+        assertThatExceptionOfType(IllegalStateException.class)
+                .isThrownBy(() -> {
+                    try (final FileStorage _ = createStorage("test")) {}
+                })
+                .withMessage(
+                        "dt.file-storage.s3.retained-bom-bucket must differ from dt.file-storage.s3.bucket (test)");
+    }
+
+    @Test
+    void shouldThrowWhenRetainedBomBucketDoesNotExist() {
+        assertThatExceptionOfType(IllegalStateException.class)
+                .isThrownBy(() -> {
+                    try (final FileStorage _ = createStorage("does-not-exist")) {}
+                })
+                .withMessage("Bucket does-not-exist does not exist");
     }
 
     @Test
@@ -131,6 +151,41 @@ class S3FileStorageTest {
                             .setLocation("s3://test/foo")
                             .build()))
                     .isTrue();
+        }
+    }
+
+    @Test
+    void storeShouldUseRetainedBomBucketForRetainedBoms() throws Exception {
+        try (final FileStorage storage = createStorage("test-retained")) {
+            final FileMetadata retainedBom =
+                    storage.store("retained-bom/a/b", new ByteArrayInputStream("baz".getBytes()));
+            assertThat(retainedBom.getLocation()).isEqualTo("s3://test-retained/retained-bom/a/b");
+            assertThat(storage.get(retainedBom).readAllBytes()).asString().isEqualTo("baz");
+
+            assertThat(storage.store("bom-upload/a", new ByteArrayInputStream("baz".getBytes()))
+                            .getLocation())
+                    .isEqualTo("s3://test/bom-upload/a");
+            assertThat(storage.store("retained-bomx/a", new ByteArrayInputStream("baz".getBytes()))
+                            .getLocation())
+                    .isEqualTo("s3://test/retained-bomx/a");
+
+            assertThat(storage.delete(retainedBom)).isTrue();
+            assertThatExceptionOfType(NoSuchFileException.class).isThrownBy(() -> storage.get(retainedBom));
+        }
+    }
+
+    @Test
+    void getAndDeleteShouldUseBucketOfStoredLocation() throws Exception {
+        final FileMetadata retainedBom;
+        try (final FileStorage storage = createStorage()) {
+            retainedBom = storage.store("retained-bom/e/f", new ByteArrayInputStream("baz".getBytes()));
+            assertThat(retainedBom.getLocation()).isEqualTo("s3://test/retained-bom/e/f");
+        }
+
+        try (final FileStorage storage = createStorage("test-retained")) {
+            assertThat(storage.get(retainedBom).readAllBytes()).asString().isEqualTo("baz");
+            assertThat(storage.delete(retainedBom)).isTrue();
+            assertThatExceptionOfType(NoSuchFileException.class).isThrownBy(() -> storage.get(retainedBom));
         }
     }
 
@@ -194,6 +249,15 @@ class S3FileStorageTest {
                 Map.entry("dt.file-storage.s3.access-key", "foo"),
                 Map.entry("dt.file-storage.s3.secret-key", "bar"),
                 Map.entry("dt.file-storage.s3.bucket", "test")));
+    }
+
+    private FileStorage createStorage(String retainedBomBucket) {
+        return createStorage(Map.ofEntries(
+                Map.entry("dt.file-storage.s3.endpoint", s3MockContainer.getHttpEndpoint()),
+                Map.entry("dt.file-storage.s3.access-key", "foo"),
+                Map.entry("dt.file-storage.s3.secret-key", "bar"),
+                Map.entry("dt.file-storage.s3.bucket", "test"),
+                Map.entry("dt.file-storage.s3.retained-bom-bucket", retainedBomBucket)));
     }
 
     private static FileStorage createStorage(Map<String, String> configValues) {
