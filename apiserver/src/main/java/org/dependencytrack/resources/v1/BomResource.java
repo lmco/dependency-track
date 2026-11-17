@@ -52,6 +52,7 @@ import org.dependencytrack.dex.engine.api.DexEngine;
 import org.dependencytrack.dex.engine.api.WorkflowRunMetadata;
 import org.dependencytrack.dex.engine.api.request.CreateWorkflowRunRequest;
 import org.dependencytrack.dex.engine.api.request.ListWorkflowRunsRequest;
+import org.dependencytrack.filestorage.api.FileNamePrefixes;
 import org.dependencytrack.filestorage.api.FileStorage;
 import org.dependencytrack.filestorage.proto.v1.FileMetadata;
 import org.dependencytrack.model.BomValidationMode;
@@ -881,12 +882,14 @@ public class BomResource extends AbstractApiResource {
                 getAlpineRequest(),
                 handle -> handle.attach(ConfigPropertyDao.class).isEnabled(BOM_ORIGINAL_RETENTION_ENABLED));
 
+        final String bomFileName = retainBomFile
+                ? "%s%s/%s".formatted(FileNamePrefixes.RETAINED_BOM, project.uuid(), bomUploadToken)
+                : "bom-upload/%s".formatted(bomUploadToken);
+
         final FileMetadata bomFileMetadata;
         try {
-            bomFileMetadata = fileStorage.store(
-                    "bom-upload/%s".formatted(bomUploadToken),
-                    determineBomMediaType(bomBytes),
-                    new ByteArrayInputStream(bomBytes));
+            bomFileMetadata =
+                    fileStorage.store(bomFileName, determineBomMediaType(bomBytes), new ByteArrayInputStream(bomBytes));
         } catch (IOException e) {
             LOGGER.error("Failed to store BOM for project: {}", project.uuid(), e);
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();

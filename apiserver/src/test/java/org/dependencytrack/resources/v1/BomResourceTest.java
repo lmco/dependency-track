@@ -1579,6 +1579,10 @@ class BomResourceTest extends ResourceTest {
         final var workflowArg = (ImportBomArg) workflowRequest.argument();
 
         assertThat(workflowArg.getRetainBomFile()).isEqualTo(expectedRetention);
+        final String expectedLocation = expectedRetention
+                ? "memory:///retained-bom/%s/%s".formatted(project.getUuid(), workflowArg.getBomUploadToken())
+                : "memory:///bom-upload/%s".formatted(workflowArg.getBomUploadToken());
+        assertThat(workflowArg.getBomFileMetadata().getLocation()).isEqualTo(expectedLocation);
         assertThat(workflowRequest.concurrencyKey()).isEqualTo("import-bom:" + project.getUuid());
         assertThat(workflowRequest.labels())
                 .containsEntry(WF_LABEL_PROJECT_UUID, project.getUuid().toString())
