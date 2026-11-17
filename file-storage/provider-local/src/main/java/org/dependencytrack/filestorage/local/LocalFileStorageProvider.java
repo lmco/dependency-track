@@ -29,6 +29,7 @@ import java.io.IOException;
 import java.net.ProxySelector;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 
 /**
  * @since 5.0.0
@@ -45,8 +46,34 @@ public final class LocalFileStorageProvider implements FileStorageProvider {
 
     @Override
     public FileStorage create(Config config, ProxySelector proxySelector) {
-        final Path directoryPath = config.getValue("dt.file-storage.local.directory", Path.class);
+        // Storage compares resolved file paths against these directories,
+        // so they must be absolute and normalized, e.g. without "..".
+        final Path directoryPath = config.getValue("dt.file-storage.local.directory", Path.class)
+                .toAbsolutePath()
+                .normalize();
+        requireUsableDirectory(directoryPath);
 
+        final Optional<Path> retainedBomDirectoryPath = config.getOptionalValue(
+                        "dt.file-storage.local.retained-bom-directory", Path.class)
+                .map(path -> path.toAbsolutePath().normalize());
+        retainedBomDirectoryPath.ifPresent(path -> {
+            requireUsableDirectory(path);
+            requireSeparateDirectories(directoryPath, path);
+        });
+
+        final int compressionLevel = config.getOptionalValue("dt.file-storage.local.compression-level", int.class)
+                .orElse(5);
+        if (compressionLevel < Zstd.minCompressionLevel() || compressionLevel > Zstd.maxCompressionLevel()) {
+            throw new IllegalStateException("Invalid compression level: must be between %d and %d, but is %d"
+                    .formatted(Zstd.minCompressionLevel(), Zstd.maxCompressionLevel(), compressionLevel));
+        }
+
+        LOGGER.debug("Files will be stored in {}", directoryPath);
+        retainedBomDirectoryPath.ifPresent(path -> LOGGER.debug("Retained BOMs will be stored in {}", path));
+        return new LocalFileStorage(directoryPath, retainedBomDirectoryPath.orElse(directoryPath), compressionLevel);
+    }
+
+    private static void requireUsableDirectory(Path directoryPath) {
         try {
             Files.createDirectories(directoryPath);
         } catch (IOException e) {
@@ -60,15 +87,33 @@ public final class LocalFileStorageProvider implements FileStorageProvider {
             throw new IllegalStateException("Insufficient permissions for directory %s (canRead=%s, canWrite=%s)"
                     .formatted(directoryPath, canRead, canWrite));
         }
+    }
 
-        final int compressionLevel = config.getOptionalValue("dt.file-storage.local.compression-level", int.class)
-                .orElse(5);
-        if (compressionLevel < Zstd.minCompressionLevel() || compressionLevel > Zstd.maxCompressionLevel()) {
-            throw new IllegalStateException("Invalid compression level: must be between %d and %d, but is %d"
-                    .formatted(Zstd.minCompressionLevel(), Zstd.maxCompressionLevel(), compressionLevel));
+    private static void requireSeparateDirectories(Path directoryPath, Path retainedBomDirectoryPath) {
+        final Path realDirectoryPath;
+        final Path realRetainedBomDirectoryPath;
+        final boolean sameFileStore;
+        try {
+            realDirectoryPath = directoryPath.toRealPath();
+            realRetainedBomDirectoryPath = retainedBomDirectoryPath.toRealPath();
+            sameFileStore =
+                    Files.getFileStore(realDirectoryPath).equals(Files.getFileStore(realRetainedBomDirectoryPath));
+        } catch (IOException e) {
+            throw new IllegalStateException(
+                    "Failed to inspect directories %s and %s".formatted(directoryPath, retainedBomDirectoryPath), e);
         }
 
-        LOGGER.debug("Files will be stored in {}", directoryPath);
-        return new LocalFileStorage(directoryPath, compressionLevel);
+        if (realRetainedBomDirectoryPath.startsWith(realDirectoryPath)
+                || realDirectoryPath.startsWith(realRetainedBomDirectoryPath)) {
+            throw new IllegalStateException("""
+                    dt.file-storage.local.retained-bom-directory (%s) must not be the same as, \
+                    be inside, or contain dt.file-storage.local.directory (%s)""".formatted(realRetainedBomDirectoryPath, realDirectoryPath));
+        }
+
+        if (sameFileStore) {
+            LOGGER.warn("""
+                    Retained BOMs ({}) are on the same filesystem as other files ({}); \
+                    Make sure the volume for retained BOMs is mounted""", realRetainedBomDirectoryPath, realDirectoryPath);
+        }
     }
 }

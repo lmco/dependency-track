@@ -250,11 +250,84 @@ class LocalFileStorageTest {
 
     @Test
     @SuppressWarnings("resource")
+    void storeShouldUseRetainedBomDirectoryForRetainedBoms(@TempDir final Path retainedTempDirPath) throws Exception {
+        final Path retainedBomDirPath = retainedTempDirPath.resolve("retained");
+        final FileStorage storage = createStorage(retainedBomDirPath);
+
+        final FileMetadata retainedBom = storage.store("retained-bom/a/b", new ByteArrayInputStream("baz".getBytes()));
+        assertThat(retainedBom.getLocation()).isEqualTo("local:///retained-bom/a/b");
+        assertThat(retainedBomDirPath.resolve("retained-bom/a/b")).exists();
+        assertThat(tempDirPath.resolve("retained-bom")).doesNotExist();
+        assertThat(storage.get(retainedBom).readAllBytes()).asString().isEqualTo("baz");
+
+        storage.store("bom-upload/a", new ByteArrayInputStream("baz".getBytes()));
+        assertThat(tempDirPath.resolve("bom-upload/a")).exists();
+
+        storage.store("retained-bomx/a", new ByteArrayInputStream("baz".getBytes()));
+        assertThat(tempDirPath.resolve("retained-bomx/a")).exists();
+    }
+
+    @Test
+    @SuppressWarnings("resource")
+    void storeShouldUseRetainedBomDirectoryWithDotSegments(@TempDir final Path retainedTempDirPath) throws Exception {
+        final FileStorage storage = createStorage(retainedTempDirPath.resolve("x/../retained"));
+
+        final FileMetadata retainedBom = storage.store("retained-bom/a/b", new ByteArrayInputStream("baz".getBytes()));
+        assertThat(retainedBom.getLocation()).isEqualTo("local:///retained-bom/a/b");
+        assertThat(retainedTempDirPath.resolve("retained/retained-bom/a/b")).exists();
+        assertThat(storage.get(retainedBom).readAllBytes()).asString().isEqualTo("baz");
+    }
+
+    @Test
+    @SuppressWarnings("resource")
+    void storeShouldNormalizeFileNameBeforeChoosingDirectory(@TempDir final Path retainedTempDirPath) throws Exception {
+        final Path retainedBomDirPath = retainedTempDirPath.resolve("retained");
+        final FileStorage storage = createStorage(retainedBomDirPath);
+
+        final FileMetadata file = storage.store("retained-bom/../a", new ByteArrayInputStream("baz".getBytes()));
+        assertThat(file.getLocation()).isEqualTo("local:///a");
+        assertThat(tempDirPath.resolve("a")).exists();
+
+        final FileMetadata retainedBom =
+                storage.store("a/../retained-bom/b", new ByteArrayInputStream("baz".getBytes()));
+        assertThat(retainedBom.getLocation()).isEqualTo("local:///retained-bom/b");
+        assertThat(retainedBomDirPath.resolve("retained-bom/b")).exists();
+    }
+
+    @Test
+    @SuppressWarnings("resource")
+    void deleteShouldNotDeleteRetainedBomDirectory(@TempDir final Path retainedTempDirPath) throws Exception {
+        final Path retainedBomDirPath = retainedTempDirPath.resolve("retained");
+        final FileStorage storage = createStorage(retainedBomDirPath);
+
+        final FileMetadata retainedBom = storage.store("retained-bom/a/b", new ByteArrayInputStream("baz".getBytes()));
+        assertThat(storage.delete(retainedBom)).isTrue();
+        assertThat(retainedBomDirPath.resolve("retained-bom")).doesNotExist();
+        assertThat(retainedBomDirPath).exists();
+    }
+
+    @Test
+    @SuppressWarnings("resource")
+    void getShouldFindRetainedBomOnlyAfterItWasMoved(@TempDir final Path retainedTempDirPath) throws Exception {
+        final FileMetadata retainedBom =
+                createStorage().store("retained-bom/a/b", new ByteArrayInputStream("baz".getBytes()));
+        assertThat(tempDirPath.resolve("retained-bom/a/b")).exists();
+
+        final Path retainedBomDirPath = retainedTempDirPath.resolve("retained");
+        final FileStorage storage = createStorage(retainedBomDirPath);
+        assertThatExceptionOfType(NoSuchFileException.class).isThrownBy(() -> storage.get(retainedBom));
+
+        Files.move(tempDirPath.resolve("retained-bom"), retainedBomDirPath.resolve("retained-bom"));
+        assertThat(storage.get(retainedBom).readAllBytes()).asString().isEqualTo("baz");
+    }
+
+    @Test
+    @SuppressWarnings("resource")
     void shouldUseForwardSlashesInLocationOnWindowsFilesystem() throws Exception {
         try (final FileSystem fileSystem = Jimfs.newFileSystem(Configuration.windows())) {
             final Path baseDirPath = fileSystem.getPath("C:\\storage");
             Files.createDirectories(baseDirPath);
-            final FileStorage storage = new LocalFileStorage(baseDirPath, 5);
+            final FileStorage storage = new LocalFileStorage(baseDirPath, baseDirPath, 5);
 
             final FileMetadata fileMetadata = storage.store("foo/bar", new ByteArrayInputStream("baz".getBytes()));
             assertThat(fileMetadata.getLocation()).isEqualTo("local:///foo/bar");
@@ -271,6 +344,17 @@ class LocalFileStorageTest {
                 .withDefaultValues(Map.of(
                         "dt.file-storage.local.directory",
                         tempDirPath.toAbsolutePath().toString()))
+                .build();
+        return new LocalFileStorageProvider().create(config, ProxySelector.getDefault());
+    }
+
+    private FileStorage createStorage(Path retainedBomDirPath) {
+        final Config config = new SmallRyeConfigBuilder()
+                .withDefaultValues(Map.of(
+                        "dt.file-storage.local.directory",
+                        tempDirPath.toAbsolutePath().toString(),
+                        "dt.file-storage.local.retained-bom-directory",
+                        retainedBomDirPath.toAbsolutePath().toString()))
                 .build();
         return new LocalFileStorageProvider().create(config, ProxySelector.getDefault());
     }

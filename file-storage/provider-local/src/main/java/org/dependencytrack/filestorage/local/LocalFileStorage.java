@@ -20,6 +20,7 @@ package org.dependencytrack.filestorage.local;
 
 import com.github.luben.zstd.ZstdInputStream;
 import com.github.luben.zstd.ZstdOutputStream;
+import org.dependencytrack.filestorage.api.FileNamePrefixes;
 import org.dependencytrack.filestorage.api.FileStorage;
 import org.dependencytrack.filestorage.proto.v1.FileMetadata;
 import org.jspecify.annotations.Nullable;
@@ -56,10 +57,12 @@ final class LocalFileStorage implements FileStorage {
 
     private final Path baseDirPath;
     private final int compressionLevel;
+    private final Path retainedBomDirPath;
 
-    LocalFileStorage(Path baseDirPath, int compressionLevel) {
+    LocalFileStorage(Path baseDirPath, Path retainedBomDirPath, int compressionLevel) {
         this.baseDirPath = baseDirPath;
         this.compressionLevel = compressionLevel;
+        this.retainedBomDirPath = retainedBomDirPath;
     }
 
     @Override
@@ -72,12 +75,12 @@ final class LocalFileStorage implements FileStorage {
         requireValidFileName(fileName);
         requireNonNull(contentStream, "contentStream must not be null");
 
-        final Path filePath = resolveFilePath(fileName);
-        if (Files.isDirectory(filePath)) {
+        final ResolvedFile file = resolveFile(fileName);
+        if (Files.isDirectory(file.filePath())) {
             throw new IOException("Path %s exists, but is a directory".formatted(fileName));
         }
 
-        final Path relativeFilePath = baseDirPath.relativize(filePath);
+        final Path relativeFilePath = file.dirPath().relativize(file.filePath());
         final URI locationUri = URI.create("%s:///%s"
                 .formatted(
                         LocalFileStorageProvider.NAME,
@@ -92,7 +95,7 @@ final class LocalFileStorage implements FileStorage {
             throw new IllegalStateException(e);
         }
 
-        try (final var fileOutputStream = openOutputStream(filePath);
+        try (final var fileOutputStream = openOutputStream(file.filePath());
                 final var bufferedOutputStream = new BufferedOutputStream(fileOutputStream);
                 final var digestOutputStream = new DigestOutputStream(bufferedOutputStream, messageDigest);
                 final var zstdOutputStream = new ZstdOutputStream(digestOutputStream, compressionLevel)) {
@@ -111,7 +114,7 @@ final class LocalFileStorage implements FileStorage {
     public InputStream get(FileMetadata fileMetadata) throws IOException {
         requireNonNull(fileMetadata, "fileMetadata must not be null");
 
-        final Path filePath = resolveFilePath(fileMetadata);
+        final Path filePath = resolveFile(fileMetadata).filePath();
 
         return new ZstdInputStream(Files.newInputStream(filePath, StandardOpenOption.READ));
     }
@@ -120,11 +123,11 @@ final class LocalFileStorage implements FileStorage {
     public boolean delete(FileMetadata fileMetadata) throws IOException {
         requireNonNull(fileMetadata, "fileMetadata must not be null");
 
-        final Path filePath = resolveFilePath(fileMetadata);
+        final ResolvedFile file = resolveFile(fileMetadata);
 
-        final boolean deleted = Files.deleteIfExists(filePath);
+        final boolean deleted = Files.deleteIfExists(file.filePath());
         if (deleted) {
-            deleteEmptyParentDirectories(filePath.getParent());
+            deleteEmptyParentDirectories(file.dirPath(), file.filePath().getParent());
         }
 
         return deleted;
@@ -164,8 +167,8 @@ final class LocalFileStorage implements FileStorage {
         }
     }
 
-    private void deleteEmptyParentDirectories(@Nullable Path dirPath) {
-        while (dirPath != null && dirPath.startsWith(baseDirPath) && !dirPath.equals(baseDirPath)) {
+    private void deleteEmptyParentDirectories(Path rootDirPath, @Nullable Path dirPath) {
+        while (dirPath != null && dirPath.startsWith(rootDirPath) && !dirPath.equals(rootDirPath)) {
             try {
                 Files.delete(dirPath);
             } catch (DirectoryNotEmptyException | NoSuchFileException e) {
@@ -179,18 +182,25 @@ final class LocalFileStorage implements FileStorage {
         }
     }
 
-    private Path resolveFilePath(String filePath) {
-        final Path resolvedFilePath = baseDirPath.resolve(filePath).normalize().toAbsolutePath();
-        if (!resolvedFilePath.startsWith(baseDirPath)) {
+    private record ResolvedFile(Path dirPath, Path filePath) {}
+
+    private ResolvedFile resolveFile(String fileName) {
+        final Path normalizedFileName =
+                baseDirPath.getFileSystem().getPath(fileName).normalize();
+        final Path dirPath =
+                normalizedFileName.startsWith(FileNamePrefixes.RETAINED_BOM) ? retainedBomDirPath : baseDirPath;
+
+        final Path filePath = dirPath.resolve(normalizedFileName).normalize().toAbsolutePath();
+        if (!filePath.startsWith(dirPath)) {
             throw new IllegalArgumentException("""
                     The provided filePath %s does not resolve to a path within the \
-                    configured base directory (%s)""".formatted(filePath, baseDirPath));
+                    configured base directory (%s)""".formatted(fileName, dirPath));
         }
 
-        return resolvedFilePath;
+        return new ResolvedFile(dirPath, filePath);
     }
 
-    Path resolveFilePath(FileMetadata fileMetadata) {
+    private ResolvedFile resolveFile(FileMetadata fileMetadata) {
         final URI locationUri = URI.create(fileMetadata.getLocation());
         if (!LocalFileStorageProvider.NAME.equals(locationUri.getScheme())) {
             throw new IllegalArgumentException("%s: Unexpected scheme %s, expected %s"
@@ -207,6 +217,6 @@ final class LocalFileStorage implements FileStorage {
 
         // The value returned by URI#getPath always has a leading slash.
         // Remove it to prevent the path from erroneously be interpreted as absolute.
-        return resolveFilePath(locationUri.getPath().replaceFirst("^/", ""));
+        return resolveFile(locationUri.getPath().replaceFirst("^/", ""));
     }
 }
